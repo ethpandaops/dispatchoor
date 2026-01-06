@@ -73,7 +73,7 @@ Instead of triggering workflows on a schedule and hoping runners are available, 
          runner_labels:
            - self-hosted
            - linux
-         workflow_dispatch_jobs:
+         workflow_dispatch_templates:
            - id: my-job
              name: My Workflow
              owner: my-org
@@ -177,9 +177,9 @@ auth:
       my-org: admin
 ```
 
-### Groups and Jobs
+### Groups and Templates
 
-Groups define pools of runners identified by labels. Each group can have multiple workflow dispatch job templates:
+Groups define pools of runners identified by labels. Each group can have multiple workflow dispatch templates defined inline or loaded from a separate file:
 
 ```yaml
 groups:
@@ -190,7 +190,8 @@ groups:
       runner_labels:
         - self-hosted
         - sync-test
-      workflow_dispatch_jobs:
+      # Option 1: Inline templates
+      workflow_dispatch_templates:
         - id: sync-geth-prysm
           name: Sync Test geth/prysm
           owner: ethpandaops
@@ -201,7 +202,36 @@ groups:
             el-client: "geth"
             cl-client: "prysm"
             config: '{"network": "mainnet"}'
+      # Option 2: Load templates from files (paths relative to config file)
+      # workflow_dispatch_templates_files:
+      #   - templates/hoodi.yaml
+      #   - templates/mainnet.yaml
 ```
+
+Template file format (`templates/sync-tests.yaml`):
+```yaml
+- id: sync-geth-prysm
+  name: Sync Test geth/prysm
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    el-client: "geth"
+    cl-client: "prysm"
+
+- id: sync-geth-lighthouse
+  name: Sync Test geth/lighthouse
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    el-client: "geth"
+    cl-client: "lighthouse"
+```
+
+Both inline templates and file templates can be used together - file templates are appended to inline templates.
 
 ### Dispatcher
 

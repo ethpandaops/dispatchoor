@@ -828,45 +828,45 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 		}
 
 		// Sync job templates (upsert instead of delete/recreate to preserve jobs).
-		for _, jobCfg := range groupCfg.WorkflowDispatchJobs {
+		for _, tmplCfg := range groupCfg.WorkflowDispatchTemplates {
 			template := &store.JobTemplate{
-				ID:            jobCfg.ID,
+				ID:            tmplCfg.ID,
 				GroupID:       groupCfg.ID,
-				Name:          jobCfg.Name,
-				Owner:         jobCfg.Owner,
-				Repo:          jobCfg.Repo,
-				WorkflowID:    jobCfg.WorkflowID,
-				Ref:           jobCfg.Ref,
-				DefaultInputs: jobCfg.Inputs,
+				Name:          tmplCfg.Name,
+				Owner:         tmplCfg.Owner,
+				Repo:          tmplCfg.Repo,
+				WorkflowID:    tmplCfg.WorkflowID,
+				Ref:           tmplCfg.Ref,
+				DefaultInputs: tmplCfg.Inputs,
 				CreatedAt:     now,
 				UpdatedAt:     now,
 			}
 
 			// Check if template exists.
-			existingTemplate, err := st.GetJobTemplate(ctx, jobCfg.ID)
+			existingTemplate, err := st.GetJobTemplate(ctx, tmplCfg.ID)
 			if err != nil {
-				return fmt.Errorf("checking job template %s: %w", jobCfg.ID, err)
+				return fmt.Errorf("checking job template %s: %w", tmplCfg.ID, err)
 			}
 
 			if existingTemplate == nil {
 				log.WithFields(logrus.Fields{
 					"group":    groupCfg.ID,
-					"template": jobCfg.ID,
+					"template": tmplCfg.ID,
 				}).Info("Creating job template")
 
 				if err := st.CreateJobTemplate(ctx, template); err != nil {
-					return fmt.Errorf("creating job template %s: %w", jobCfg.ID, err)
+					return fmt.Errorf("creating job template %s: %w", tmplCfg.ID, err)
 				}
 			} else {
 				log.WithFields(logrus.Fields{
 					"group":    groupCfg.ID,
-					"template": jobCfg.ID,
+					"template": tmplCfg.ID,
 				}).Debug("Updating job template")
 
 				template.CreatedAt = existingTemplate.CreatedAt
 
 				if err := st.UpdateJobTemplate(ctx, template); err != nil {
-					return fmt.Errorf("updating job template %s: %w", jobCfg.ID, err)
+					return fmt.Errorf("updating job template %s: %w", tmplCfg.ID, err)
 				}
 			}
 		}

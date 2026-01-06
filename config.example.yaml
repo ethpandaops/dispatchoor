@@ -50,7 +50,7 @@ auth:
     role_mapping:
       ethpandaops: admin
 
-# Groups define runner pools and their dispatchable workflow jobs
+# Groups define runner pools and their dispatchable workflow templates
 groups:
   github:
     - id: sync-tests
@@ -60,7 +60,12 @@ groups:
         - self-hosted
         - synctest
         - Disk2TB
-      workflow_dispatch_jobs:
+      # Templates can be defined inline or loaded from separate files:
+      # workflow_dispatch_templates_files:
+      #   - templates/hoodi.yaml
+      #   - templates/mainnet.yaml
+      # Both can be used together - file templates are appended to inline templates.
+      workflow_dispatch_templates:
         - id: sync-test-hoodi-geth-prysm
           name: Sync Test (Hoodi) - geth/prysm
           owner: ethpandaops

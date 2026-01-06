@@ -167,10 +167,10 @@ func (p *poller) poll(ctx context.Context) error {
 	orgs := make(map[string]bool)
 
 	for _, group := range p.cfg.Groups.GitHub {
-		for _, job := range group.WorkflowDispatchJobs {
+		for _, tmpl := range group.WorkflowDispatchTemplates {
 			// For now, assume runners are at org level.
 			// Could be extended to support repo-level runners.
-			orgs[job.Owner] = true
+			orgs[tmpl.Owner] = true
 		}
 	}
 

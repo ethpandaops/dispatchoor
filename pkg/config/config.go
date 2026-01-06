@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -98,15 +99,16 @@ type GroupsConfig struct {
 
 // Group represents a runner pool and its associated workflow dispatch jobs.
 type Group struct {
-	ID                   string                `yaml:"id"`
-	Name                 string                `yaml:"name"`
-	Description          string                `yaml:"description"`
-	RunnerLabels         []string              `yaml:"runner_labels"`
-	WorkflowDispatchJobs []WorkflowDispatchJob `yaml:"workflow_dispatch_jobs"`
+	ID                             string                     `yaml:"id"`
+	Name                           string                     `yaml:"name"`
+	Description                    string                     `yaml:"description"`
+	RunnerLabels                   []string                   `yaml:"runner_labels"`
+	WorkflowDispatchTemplates      []WorkflowDispatchTemplate `yaml:"workflow_dispatch_templates"`
+	WorkflowDispatchTemplatesFiles []string                   `yaml:"workflow_dispatch_templates_files"`
 }
 
-// WorkflowDispatchJob represents a workflow dispatch job template.
-type WorkflowDispatchJob struct {
+// WorkflowDispatchTemplate represents a workflow dispatch template configuration.
+type WorkflowDispatchTemplate struct {
 	ID         string            `yaml:"id"`
 	Name       string            `yaml:"name"`
 	Owner      string            `yaml:"owner"`
@@ -131,6 +133,12 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
 
+	// Load templates from external files.
+	configDir := filepath.Dir(path)
+	if err := loadTemplateFiles(&cfg, configDir); err != nil {
+		return nil, fmt.Errorf("loading template files: %w", err)
+	}
+
 	// Apply defaults.
 	applyDefaults(&cfg)
 
@@ -140,6 +148,42 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// loadTemplateFiles loads workflow dispatch templates from external files.
+func loadTemplateFiles(cfg *Config, configDir string) error {
+	for i := range cfg.Groups.GitHub {
+		group := &cfg.Groups.GitHub[i]
+
+		for _, templateFile := range group.WorkflowDispatchTemplatesFiles {
+			// Resolve path relative to config file directory.
+			templatePath := templateFile
+			if !filepath.IsAbs(templatePath) {
+				templatePath = filepath.Join(configDir, templatePath)
+			}
+
+			// Read and parse template file.
+			data, err := os.ReadFile(templatePath)
+			if err != nil {
+				return fmt.Errorf("reading template file %s for group %s: %w",
+					templateFile, group.ID, err)
+			}
+
+			// Expand environment variables.
+			expanded := expandEnvVars(string(data))
+
+			var templates []WorkflowDispatchTemplate
+			if err := yaml.Unmarshal([]byte(expanded), &templates); err != nil {
+				return fmt.Errorf("parsing template file %s for group %s: %w",
+					templateFile, group.ID, err)
+			}
+
+			// Append templates from file to any inline templates.
+			group.WorkflowDispatchTemplates = append(group.WorkflowDispatchTemplates, templates...)
+		}
+	}
+
+	return nil
 }
 
 // expandEnvVars replaces ${VAR} and $VAR patterns with environment variable values.
@@ -211,11 +255,11 @@ func applyDefaults(cfg *Config) {
 		cfg.Auth.SessionTTL = 24 * time.Hour
 	}
 
-	// Set default refs for workflow dispatch jobs.
+	// Set default refs for workflow dispatch templates.
 	for i := range cfg.Groups.GitHub {
-		for j := range cfg.Groups.GitHub[i].WorkflowDispatchJobs {
-			if cfg.Groups.GitHub[i].WorkflowDispatchJobs[j].Ref == "" {
-				cfg.Groups.GitHub[i].WorkflowDispatchJobs[j].Ref = "main"
+		for j := range cfg.Groups.GitHub[i].WorkflowDispatchTemplates {
+			if cfg.Groups.GitHub[i].WorkflowDispatchTemplates[j].Ref == "" {
+				cfg.Groups.GitHub[i].WorkflowDispatchTemplates[j].Ref = "main"
 			}
 		}
 	}
@@ -280,27 +324,27 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("group %s: runner_labels is required", group.ID)
 		}
 
-		for _, job := range group.WorkflowDispatchJobs {
-			if job.ID == "" {
-				return fmt.Errorf("group %s: workflow_dispatch_job id is required", group.ID)
+		for _, tmpl := range group.WorkflowDispatchTemplates {
+			if tmpl.ID == "" {
+				return fmt.Errorf("group %s: workflow_dispatch_template id is required", group.ID)
 			}
 
-			if jobIDs[job.ID] {
-				return fmt.Errorf("duplicate workflow_dispatch_job id: %s", job.ID)
+			if jobIDs[tmpl.ID] {
+				return fmt.Errorf("duplicate workflow_dispatch_template id: %s", tmpl.ID)
 			}
 
-			jobIDs[job.ID] = true
+			jobIDs[tmpl.ID] = true
 
-			if job.Owner == "" {
-				return fmt.Errorf("job %s: owner is required", job.ID)
+			if tmpl.Owner == "" {
+				return fmt.Errorf("template %s: owner is required", tmpl.ID)
 			}
 
-			if job.Repo == "" {
-				return fmt.Errorf("job %s: repo is required", job.ID)
+			if tmpl.Repo == "" {
+				return fmt.Errorf("template %s: repo is required", tmpl.ID)
 			}
 
-			if job.WorkflowID == "" {
-				return fmt.Errorf("job %s: workflow_id is required", job.ID)
+			if tmpl.WorkflowID == "" {
+				return fmt.Errorf("template %s: workflow_id is required", tmpl.ID)
 			}
 		}
 	}
