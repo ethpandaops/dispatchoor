@@ -72,6 +72,7 @@ type WorkflowJob struct {
 	Name       string
 	Status     string // queued, in_progress, completed
 	Conclusion string // success, failure, cancelled, etc.
+	RunnerID   int64
 	RunnerName string
 	StartedAt  time.Time
 }
@@ -424,6 +425,7 @@ func (c *client) ListWorkflowRunJobs(ctx context.Context, owner, repo string, ru
 				Name:       job.GetName(),
 				Status:     job.GetStatus(),
 				Conclusion: job.GetConclusion(),
+				RunnerID:   job.GetRunnerID(),
 				RunnerName: job.GetRunnerName(),
 			}
 

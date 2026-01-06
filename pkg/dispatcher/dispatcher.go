@@ -13,10 +13,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// RunnerChangeCallback is called when a runner's status changes.
+type RunnerChangeCallback func(runner *store.Runner)
+
 // Dispatcher defines the interface for the job dispatch service.
 type Dispatcher interface {
 	Start(ctx context.Context) error
 	Stop() error
+	SetRunnerChangeCallback(cb RunnerChangeCallback)
 }
 
 // dispatcher implements Dispatcher.
@@ -30,9 +34,10 @@ type dispatcher struct {
 	interval      time.Duration
 	maxConcurrent int
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	mu     sync.Mutex
+	cancel               context.CancelFunc
+	wg                   sync.WaitGroup
+	mu                   sync.Mutex
+	runnerChangeCallback RunnerChangeCallback
 }
 
 // Ensure dispatcher implements Dispatcher.
@@ -93,6 +98,18 @@ func (d *dispatcher) Stop() error {
 	d.wg.Wait()
 
 	return nil
+}
+
+// SetRunnerChangeCallback sets the callback for runner status changes.
+func (d *dispatcher) SetRunnerChangeCallback(cb RunnerChangeCallback) {
+	d.runnerChangeCallback = cb
+}
+
+// notifyRunnerChange calls the callback if set.
+func (d *dispatcher) notifyRunnerChange(runner *store.Runner) {
+	if d.runnerChangeCallback != nil {
+		d.runnerChangeCallback(runner)
+	}
 }
 
 // dispatchLoop is the main dispatch loop that matches pending jobs to idle runners.
@@ -339,16 +356,19 @@ func (d *dispatcher) trackJob(ctx context.Context, job *store.Job) error {
 
 	case "in_progress":
 		if job.Status == store.JobStatusTriggered {
-			// Extract runner name from the workflow jobs.
-			runnerName := ""
+			// Extract runner info from the workflow jobs.
+			var runnerID int64
+
+			var runnerName string
 
 			jobs, err := d.ghClient.ListWorkflowRunJobs(ctx, template.Owner, template.Repo, *job.RunID)
 			if err != nil {
-				log.WithError(err).Warn("Failed to get workflow jobs for runner name")
+				log.WithError(err).Warn("Failed to get workflow jobs for runner info")
 			} else if len(jobs) > 0 {
-				// Get runner name from the first job (typically there's one main job).
+				// Get runner info from the first job with a runner assigned.
 				for _, j := range jobs {
-					if j.RunnerName != "" {
+					if j.RunnerID != 0 {
+						runnerID = j.RunnerID
 						runnerName = j.RunnerName
 
 						break
@@ -360,7 +380,27 @@ func (d *dispatcher) trackJob(ctx context.Context, job *store.Job) error {
 				return fmt.Errorf("marking job as running: %w", err)
 			}
 
-			log.WithField("runner", runnerName).Info("Job is now running")
+			// Update runner busy status and notify.
+			if runnerID != 0 {
+				runner, err := d.store.GetRunner(ctx, runnerID)
+				if err != nil {
+					log.WithError(err).WithField("runner_id", runnerID).Warn("Failed to get runner by ID")
+				} else if runner == nil {
+					log.WithField("runner_id", runnerID).Warn("Runner not found by ID")
+				} else if !runner.Busy {
+					runner.Busy = true
+					if err := d.store.UpsertRunner(ctx, runner); err != nil {
+						log.WithError(err).Warn("Failed to update runner busy status")
+					} else {
+						d.notifyRunnerChange(runner)
+					}
+				}
+			}
+
+			log.WithFields(logrus.Fields{
+				"runner_id":   runnerID,
+				"runner_name": runnerName,
+			}).Info("Job is now running")
 		}
 
 	case "completed":

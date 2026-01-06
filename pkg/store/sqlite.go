@@ -759,6 +759,37 @@ func (s *SQLiteStore) GetRunner(ctx context.Context, id int64) (*Runner, error) 
 	return &runner, nil
 }
 
+// GetRunnerByName retrieves a runner by name.
+func (s *SQLiteStore) GetRunnerByName(ctx context.Context, name string) (*Runner, error) {
+	var runner Runner
+
+	var labelsJSON string
+
+	var busy int
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, name, labels, status, busy, os, last_seen_at, created_at, updated_at
+		FROM runners WHERE name = ?
+	`, name).Scan(&runner.ID, &runner.Name, &labelsJSON, &runner.Status, &busy,
+		&runner.OS, &runner.LastSeenAt, &runner.CreatedAt, &runner.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("querying runner by name: %w", err)
+	}
+
+	if err := json.Unmarshal([]byte(labelsJSON), &runner.Labels); err != nil {
+		return nil, fmt.Errorf("unmarshaling labels: %w", err)
+	}
+
+	runner.Busy = busy == 1
+
+	return &runner, nil
+}
+
 // ListRunners retrieves all runners.
 func (s *SQLiteStore) ListRunners(ctx context.Context) ([]*Runner, error) {
 	rows, err := s.db.QueryContext(ctx, `

@@ -40,6 +40,7 @@ type Store interface {
 	// Runners.
 	UpsertRunner(ctx context.Context, runner *Runner) error
 	GetRunner(ctx context.Context, id int64) (*Runner, error)
+	GetRunnerByName(ctx context.Context, name string) (*Runner, error)
 	ListRunners(ctx context.Context) ([]*Runner, error)
 	ListRunnersByLabels(ctx context.Context, labels []string) ([]*Runner, error)
 	DeleteRunner(ctx context.Context, id int64) error

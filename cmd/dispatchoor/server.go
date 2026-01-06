@@ -128,8 +128,12 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	// Create and start API server.
 	srv := api.NewServer(log, cfg, st, queueSvc, authSvc, m)
 
-	// Set up runner change callback to broadcast via WebSocket.
+	// Set up runner change callbacks to broadcast via WebSocket.
 	poller.SetRunnerChangeCallback(func(runner *store.Runner) {
+		srv.BroadcastRunnerChange(runner)
+	})
+
+	disp.SetRunnerChangeCallback(func(runner *store.Runner) {
 		srv.BroadcastRunnerChange(runner)
 	})
 
