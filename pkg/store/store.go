@@ -116,6 +116,9 @@ type Job struct {
 	Position     int               `json:"position"`
 	Status       JobStatus         `json:"status"`
 	Paused       bool              `json:"paused"`
+	AutoRequeue  bool              `json:"auto_requeue"`
+	RequeueLimit *int              `json:"requeue_limit"`
+	RequeueCount int               `json:"requeue_count"`
 	Inputs       map[string]string `json:"inputs"`
 	CreatedBy    string            `json:"created_by"`
 	TriggeredAt  *time.Time        `json:"triggered_at"`

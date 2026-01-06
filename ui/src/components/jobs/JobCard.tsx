@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Job, JobTemplate } from '../../types';
 import { api } from '../../api/client';
@@ -23,6 +24,8 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const isAdmin = user?.role === 'admin';
+  const [showStopRequeueConfirm, setShowStopRequeueConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteJob(job.id),
@@ -46,7 +49,72 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
     },
   });
 
+  const disableRequeueMutation = useMutation({
+    mutationFn: () => api.disableAutoRequeue(job.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue', job.group_id] });
+    },
+  });
+
+  const toggleRequeueMutation = useMutation({
+    mutationFn: () => api.updateAutoRequeue(job.id, !job.auto_requeue, job.requeue_limit),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue', job.group_id] });
+    },
+  });
+
+  // Keyboard shortcuts for disable requeue confirmation modal
+  useEffect(() => {
+    if (!showStopRequeueConfirm) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowStopRequeueConfirm(false);
+      } else if (e.key === 'Enter') {
+        const isRunningOrTriggered = job.status === 'running' || job.status === 'triggered';
+        const isPending = !isRunningOrTriggered && !toggleRequeueMutation.isPending;
+        const canDisable = isRunningOrTriggered && !disableRequeueMutation.isPending;
+
+        if (isPending) {
+          toggleRequeueMutation.mutate();
+          setShowStopRequeueConfirm(false);
+        } else if (canDisable) {
+          disableRequeueMutation.mutate();
+          setShowStopRequeueConfirm(false);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showStopRequeueConfirm, disableRequeueMutation, toggleRequeueMutation, job.status]);
+
+  // Keyboard shortcuts for delete confirmation modal
+  useEffect(() => {
+    if (!showDeleteConfirm) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowDeleteConfirm(false);
+      } else if (e.key === 'Enter' && !deleteMutation.isPending) {
+        deleteMutation.mutate();
+        setShowDeleteConfirm(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showDeleteConfirm, deleteMutation]);
+
   const colors = statusColors[job.status] || statusColors.pending;
+
+  const getRequeueCountDisplay = () => {
+    if (!job.auto_requeue && job.requeue_count === 0) return null;
+    if (job.requeue_limit !== null) {
+      return `${job.requeue_count}/${job.requeue_limit}`;
+    }
+    return job.requeue_count > 0 ? `${job.requeue_count}/∞` : '∞';
+  };
 
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return null;
@@ -93,6 +161,14 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
               {job.paused ? 'paused' : job.status}
             </span>
             <span className="text-xs text-zinc-500">#{job.position}</span>
+            {(job.auto_requeue || job.requeue_count > 0) && (
+              <span className="inline-flex items-center gap-1 rounded-sm bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400" title="Auto-requeue enabled">
+                <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {getRequeueCountDisplay()}
+              </span>
+            )}
           </div>
 
           {/* Job name */}
@@ -144,6 +220,29 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
 
         {/* Actions */}
         <div className="flex items-center gap-1">
+          {/* Auto-requeue toggle for running/triggered jobs - appears before GitHub link */}
+          {isAdmin && (job.status === 'triggered' || job.status === 'running') && (
+            <button
+              onClick={() => {
+                if (job.auto_requeue) {
+                  setShowStopRequeueConfirm(true);
+                } else {
+                  toggleRequeueMutation.mutate();
+                }
+              }}
+              disabled={toggleRequeueMutation.isPending || disableRequeueMutation.isPending}
+              className={`rounded-sm p-1.5 text-zinc-500 disabled:opacity-50 ${
+                job.auto_requeue
+                  ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
+                  : 'hover:bg-purple-500/10 hover:text-purple-400'
+              }`}
+              title={job.auto_requeue ? 'Disable auto-requeue' : 'Enable auto-requeue'}
+            >
+              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          )}
           {job.run_url && (
             <a
               href={job.run_url}
@@ -182,9 +281,33 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
               </svg>
             </button>
           )}
+          {/* Auto-requeue toggle for pending jobs */}
+          {isAdmin && job.status === 'pending' && (
+            <button
+              onClick={() => {
+                // Show confirmation modal when disabling auto-requeue
+                if (job.auto_requeue) {
+                  setShowStopRequeueConfirm(true);
+                } else {
+                  toggleRequeueMutation.mutate();
+                }
+              }}
+              disabled={toggleRequeueMutation.isPending || disableRequeueMutation.isPending}
+              className={`rounded-sm p-1.5 text-zinc-500 disabled:opacity-50 ${
+                job.auto_requeue
+                  ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
+                  : 'hover:bg-purple-500/10 hover:text-purple-400'
+              }`}
+              title={job.auto_requeue ? 'Disable auto-requeue' : 'Enable auto-requeue'}
+            >
+              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          )}
           {isAdmin && (job.status === 'pending' || job.status === 'failed') && (
             <button
-              onClick={() => deleteMutation.mutate()}
+              onClick={() => setShowDeleteConfirm(true)}
               disabled={deleteMutation.isPending}
               className="rounded-sm p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
               title="Remove job"
@@ -196,6 +319,107 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
           )}
         </div>
       </div>
+
+      {/* Disable auto-requeue confirmation modal */}
+      {showStopRequeueConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowStopRequeueConfirm(false)} />
+          <div className="relative w-full max-w-sm mx-4 rounded-sm border border-zinc-800 bg-zinc-900 shadow-xl">
+            <div className="p-4">
+              <h3 className="text-lg font-semibold text-zinc-100 mb-2">Disable Auto-Requeue?</h3>
+              <div className="mb-3 rounded-sm bg-zinc-800 p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${colors.bg} ${colors.text}`}>
+                    <span className={`size-1.5 rounded-full ${colors.dot}`} />
+                    {job.status}
+                  </span>
+                  <span className="text-xs text-zinc-500">#{job.position}</span>
+                </div>
+                <p className="text-sm font-medium text-zinc-200 truncate">
+                  {template?.name || job.template_id}
+                </p>
+                {getRequeueCountDisplay() && (
+                  <p className="text-xs text-purple-400 mt-1">
+                    Requeue count: {getRequeueCountDisplay()}
+                  </p>
+                )}
+              </div>
+              <p className="text-sm text-zinc-400 mb-4">
+                {job.status === 'running' || job.status === 'triggered'
+                  ? 'This job will complete its current run but will not automatically create a new job afterwards.'
+                  : 'This job will no longer automatically create a new job after completion.'}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowStopRequeueConfirm(false)}
+                  className="rounded-sm px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (job.status === 'running' || job.status === 'triggered') {
+                      disableRequeueMutation.mutate();
+                    } else {
+                      toggleRequeueMutation.mutate();
+                    }
+                    setShowStopRequeueConfirm(false);
+                  }}
+                  disabled={toggleRequeueMutation.isPending || disableRequeueMutation.isPending}
+                  className="rounded-sm bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {(toggleRequeueMutation.isPending || disableRequeueMutation.isPending) ? 'Disabling...' : 'Disable'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete job confirmation modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowDeleteConfirm(false)} />
+          <div className="relative w-full max-w-sm mx-4 rounded-sm border border-zinc-800 bg-zinc-900 shadow-xl">
+            <div className="p-4">
+              <h3 className="text-lg font-semibold text-zinc-100 mb-2">Remove Job?</h3>
+              <div className="mb-3 rounded-sm bg-zinc-800 p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${colors.bg} ${colors.text}`}>
+                    <span className={`size-1.5 rounded-full ${colors.dot}`} />
+                    {job.status}
+                  </span>
+                  <span className="text-xs text-zinc-500">#{job.position}</span>
+                </div>
+                <p className="text-sm font-medium text-zinc-200 truncate">
+                  {template?.name || job.template_id}
+                </p>
+              </div>
+              <p className="text-sm text-zinc-400 mb-4">
+                This job will be permanently removed from the queue. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="rounded-sm px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    deleteMutation.mutate();
+                    setShowDeleteConfirm(false);
+                  }}
+                  disabled={deleteMutation.isPending}
+                  className="rounded-sm bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteMutation.isPending ? 'Removing...' : 'Remove'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

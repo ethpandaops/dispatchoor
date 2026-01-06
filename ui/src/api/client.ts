@@ -140,11 +140,18 @@ class ApiClient {
   async createJob(
     groupId: string,
     templateId: string,
-    inputs?: Record<string, string>
+    inputs?: Record<string, string>,
+    autoRequeue?: boolean,
+    requeueLimit?: number | null
   ): Promise<Job> {
     return this.request<Job>(`/groups/${groupId}/queue`, {
       method: 'POST',
-      body: JSON.stringify({ template_id: templateId, inputs }),
+      body: JSON.stringify({
+        template_id: templateId,
+        inputs,
+        auto_requeue: autoRequeue,
+        requeue_limit: requeueLimit,
+      }),
     });
   }
 
@@ -165,6 +172,17 @@ class ApiClient {
 
   async unpauseJob(id: string): Promise<Job> {
     return this.request<Job>(`/jobs/${id}/unpause`, { method: 'POST' });
+  }
+
+  async disableAutoRequeue(id: string): Promise<Job> {
+    return this.request<Job>(`/jobs/${id}/disable-requeue`, { method: 'POST' });
+  }
+
+  async updateAutoRequeue(id: string, autoRequeue: boolean, requeueLimit?: number | null): Promise<Job> {
+    return this.request<Job>(`/jobs/${id}/auto-requeue`, {
+      method: 'PUT',
+      body: JSON.stringify({ auto_requeue: autoRequeue, requeue_limit: requeueLimit }),
+    });
   }
 
   async reorderQueue(groupId: string, jobIds: string[]): Promise<void> {

@@ -15,6 +15,9 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [autoRequeue, setAutoRequeue] = useState(false);
+  const [hasRequeueLimit, setHasRequeueLimit] = useState(false);
+  const [requeueLimit, setRequeueLimit] = useState(5);
   const queryClient = useQueryClient();
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
@@ -46,13 +49,22 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
   }, [isOpen, templates, preselectedTemplateId]);
 
   const createMutation = useMutation({
-    mutationFn: () => api.createJob(groupId, selectedTemplateId, inputs),
+    mutationFn: () => api.createJob(
+      groupId,
+      selectedTemplateId,
+      inputs,
+      autoRequeue,
+      hasRequeueLimit ? requeueLimit : null
+    ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['queue', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
       onClose();
       setSelectedTemplateId('');
       setInputs({});
+      setAutoRequeue(false);
+      setHasRequeueLimit(false);
+      setRequeueLimit(5);
     },
   });
 
@@ -198,6 +210,48 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
               </div>
             </div>
           )}
+
+          {/* Auto-requeue options */}
+          <div className="rounded-sm border border-zinc-700 p-3 space-y-3">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoRequeue}
+                onChange={(e) => setAutoRequeue(e.target.checked)}
+                className="size-4 rounded-sm border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
+              />
+              <span className="text-sm text-zinc-300">Auto-requeue after completion</span>
+            </label>
+            {autoRequeue && (
+              <div className="ml-6 space-y-2">
+                <p className="text-xs text-zinc-500">
+                  Job will automatically re-queue itself after finishing (completed, failed, or cancelled).
+                </p>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={hasRequeueLimit}
+                    onChange={(e) => setHasRequeueLimit(e.target.checked)}
+                    className="size-4 rounded-sm border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
+                  />
+                  <span className="text-sm text-zinc-400">Limit number of requeues</span>
+                </label>
+                {hasRequeueLimit && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={1000}
+                      value={requeueLimit}
+                      onChange={(e) => setRequeueLimit(parseInt(e.target.value) || 1)}
+                      className="w-24 rounded-sm border border-zinc-700 bg-zinc-800 px-3 py-1.5 text-sm text-zinc-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-zinc-500">times</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {createMutation.error && (
             <div className="rounded-sm bg-red-500/10 border border-red-500/20 px-3 py-2 text-sm text-red-400">

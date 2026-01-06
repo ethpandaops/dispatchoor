@@ -165,6 +165,22 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		EXCEPTION
 			WHEN duplicate_column THEN NULL;
 		END $$`,
+		// Migration: Add auto-requeue columns to jobs table.
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN auto_requeue BOOLEAN DEFAULT false;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN requeue_limit INTEGER;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN requeue_count INTEGER DEFAULT 0;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
 	}
 
 	for _, migration := range migrations {
@@ -437,10 +453,10 @@ func (s *PostgresStore) CreateJob(ctx context.Context, job *Job) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, inputs, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status, job.Paused,
-		string(inputsJSON), job.CreatedBy, job.CreatedAt, job.UpdatedAt)
+		job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON), job.CreatedBy, job.CreatedAt, job.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("inserting job: %w", err)
@@ -459,14 +475,16 @@ func (s *PostgresStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	var runID sql.NullInt64
 
+	var requeueLimit sql.NullInt64
+
 	var runURL, runnerName, errorMessage, createdBy sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE id = $1
 	`, id).Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position, &job.Status,
-		&job.Paused, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName, &completedAt,
+		&job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName, &completedAt,
 		&errorMessage, &job.CreatedAt, &job.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -495,6 +513,11 @@ func (s *PostgresStore) GetJob(ctx context.Context, id string) (*Job, error) {
 		job.RunID = &runID.Int64
 	}
 
+	if requeueLimit.Valid {
+		limit := int(requeueLimit.Int64)
+		job.RequeueLimit = &limit
+	}
+
 	job.RunURL = runURL.String
 	job.RunnerName = runnerName.String
 	job.ErrorMessage = errorMessage.String
@@ -508,7 +531,7 @@ func (s *PostgresStore) ListJobsByGroup(
 	ctx context.Context, groupID string, statuses ...JobStatus,
 ) ([]*Job, error) {
 	query := `
-		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE group_id = $1
 	`
@@ -547,7 +570,7 @@ func (s *PostgresStore) ListJobsByStatus(ctx context.Context, statuses ...JobSta
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE status IN (%s) ORDER BY position
 	`, strings.Join(placeholders, ","))
@@ -574,10 +597,12 @@ func (s *PostgresStore) queryJobs(ctx context.Context, query string, args ...any
 
 		var runID sql.NullInt64
 
+		var requeueLimit sql.NullInt64
+
 		var runURL, runnerName, errorMessage, createdBy sql.NullString
 
 		if err := rows.Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position,
-			&job.Status, &job.Paused, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName,
+			&job.Status, &job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName,
 			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning job: %w", err)
 		}
@@ -598,6 +623,11 @@ func (s *PostgresStore) queryJobs(ctx context.Context, query string, args ...any
 
 		if runID.Valid {
 			job.RunID = &runID.Int64
+		}
+
+		if requeueLimit.Valid {
+			limit := int(requeueLimit.Int64)
+			job.RequeueLimit = &limit
 		}
 
 		job.RunURL = runURL.String
@@ -621,11 +651,11 @@ func (s *PostgresStore) UpdateJob(ctx context.Context, job *Job) error {
 	job.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE jobs SET priority = $1, position = $2, status = $3, paused = $4, inputs = $5,
-			   triggered_at = $6, run_id = $7, run_url = $8, runner_name = $9,
-			   completed_at = $10, error_message = $11, updated_at = $12
-		WHERE id = $13
-	`, job.Priority, job.Position, job.Status, job.Paused, string(inputsJSON),
+		UPDATE jobs SET priority = $1, position = $2, status = $3, paused = $4, auto_requeue = $5, requeue_limit = $6, requeue_count = $7, inputs = $8,
+			   triggered_at = $9, run_id = $10, run_url = $11, runner_name = $12,
+			   completed_at = $13, error_message = $14, updated_at = $15
+		WHERE id = $16
+	`, job.Priority, job.Position, job.Status, job.Paused, job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON),
 		job.TriggeredAt, job.RunID, job.RunURL, job.RunnerName,
 		job.CompletedAt, job.ErrorMessage, job.UpdatedAt, job.ID)
 

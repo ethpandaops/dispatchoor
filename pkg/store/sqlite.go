@@ -156,6 +156,10 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at)`,
 		// Migration: Add paused column to jobs table.
 		`ALTER TABLE jobs ADD COLUMN paused INTEGER DEFAULT 0`,
+		// Migration: Add auto-requeue columns to jobs table.
+		`ALTER TABLE jobs ADD COLUMN auto_requeue INTEGER DEFAULT 0`,
+		`ALTER TABLE jobs ADD COLUMN requeue_limit INTEGER`,
+		`ALTER TABLE jobs ADD COLUMN requeue_count INTEGER DEFAULT 0`,
 	}
 
 	for _, migration := range migrations {
@@ -440,10 +444,10 @@ func (s *SQLiteStore) CreateJob(ctx context.Context, job *Job) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, inputs, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status, job.Paused,
-		string(inputsJSON), job.CreatedBy, job.CreatedAt, job.UpdatedAt)
+		job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON), job.CreatedBy, job.CreatedAt, job.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("inserting job: %w", err)
@@ -460,18 +464,18 @@ func (s *SQLiteStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	var triggeredAt, completedAt sql.NullTime
 
-	var runID sql.NullInt64
+	var runID, requeueLimit sql.NullInt64
 
-	var paused int
+	var paused, autoRequeue int
 
 	var runURL, runnerName, errorMessage, createdBy sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE id = ?
 	`, id).Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position, &job.Status,
-		&paused, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName, &completedAt,
+		&paused, &autoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName, &completedAt,
 		&errorMessage, &job.CreatedAt, &job.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -501,6 +505,13 @@ func (s *SQLiteStore) GetJob(ctx context.Context, id string) (*Job, error) {
 	}
 
 	job.Paused = paused == 1
+	job.AutoRequeue = autoRequeue == 1
+
+	if requeueLimit.Valid {
+		limit := int(requeueLimit.Int64)
+		job.RequeueLimit = &limit
+	}
+
 	job.RunURL = runURL.String
 	job.RunnerName = runnerName.String
 	job.ErrorMessage = errorMessage.String
@@ -514,7 +525,7 @@ func (s *SQLiteStore) ListJobsByGroup(
 	ctx context.Context, groupID string, statuses ...JobStatus,
 ) ([]*Job, error) {
 	query := `
-		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE group_id = ?
 	`
@@ -551,7 +562,7 @@ func (s *SQLiteStore) ListJobsByStatus(ctx context.Context, statuses ...JobStatu
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE status IN (%s) ORDER BY position
 	`, strings.Join(placeholders, ","))
@@ -576,14 +587,14 @@ func (s *SQLiteStore) queryJobs(ctx context.Context, query string, args ...any) 
 
 		var triggeredAt, completedAt sql.NullTime
 
-		var runID sql.NullInt64
+		var runID, requeueLimit sql.NullInt64
 
-		var paused int
+		var paused, autoRequeue int
 
 		var runURL, runnerName, errorMessage, createdBy sql.NullString
 
 		if err := rows.Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position,
-			&job.Status, &paused, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName,
+			&job.Status, &paused, &autoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName,
 			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning job: %w", err)
 		}
@@ -607,6 +618,13 @@ func (s *SQLiteStore) queryJobs(ctx context.Context, query string, args ...any) 
 		}
 
 		job.Paused = paused == 1
+		job.AutoRequeue = autoRequeue == 1
+
+		if requeueLimit.Valid {
+			limit := int(requeueLimit.Int64)
+			job.RequeueLimit = &limit
+		}
+
 		job.RunURL = runURL.String
 		job.RunnerName = runnerName.String
 		job.ErrorMessage = errorMessage.String
@@ -628,11 +646,11 @@ func (s *SQLiteStore) UpdateJob(ctx context.Context, job *Job) error {
 	job.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE jobs SET priority = ?, position = ?, status = ?, paused = ?, inputs = ?,
+		UPDATE jobs SET priority = ?, position = ?, status = ?, paused = ?, auto_requeue = ?, requeue_limit = ?, requeue_count = ?, inputs = ?,
 			   triggered_at = ?, run_id = ?, run_url = ?, runner_name = ?,
 			   completed_at = ?, error_message = ?, updated_at = ?
 		WHERE id = ?
-	`, job.Priority, job.Position, job.Status, job.Paused, string(inputsJSON),
+	`, job.Priority, job.Position, job.Status, job.Paused, job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON),
 		job.TriggeredAt, job.RunID, job.RunURL, job.RunnerName,
 		job.CompletedAt, job.ErrorMessage, job.UpdatedAt, job.ID)
 

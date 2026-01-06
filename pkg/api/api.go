@@ -202,6 +202,8 @@ func (s *server) setupRouter() {
 				r.Delete("/jobs/{id}", s.handleDeleteJob)
 				r.Post("/jobs/{id}/pause", s.handlePauseJob)
 				r.Post("/jobs/{id}/unpause", s.handleUnpauseJob)
+				r.Post("/jobs/{id}/disable-requeue", s.handleDisableAutoRequeue)
+				r.Put("/jobs/{id}/auto-requeue", s.handleUpdateAutoRequeue)
 
 				// Runner refresh (admin).
 				r.Post("/runners/refresh", s.handleRefreshRunners)
@@ -466,8 +468,10 @@ func (s *server) handleListRunners(w http.ResponseWriter, r *http.Request) {
 // ============================================================================
 
 type addJobRequest struct {
-	TemplateID string            `json:"template_id"`
-	Inputs     map[string]string `json:"inputs"`
+	TemplateID   string            `json:"template_id"`
+	Inputs       map[string]string `json:"inputs"`
+	AutoRequeue  bool              `json:"auto_requeue"`
+	RequeueLimit *int              `json:"requeue_limit"`
 }
 
 func (s *server) handleAddJob(w http.ResponseWriter, r *http.Request) {
@@ -489,7 +493,12 @@ func (s *server) handleAddJob(w http.ResponseWriter, r *http.Request) {
 	// TODO: Get user from auth context.
 	createdBy := "anonymous"
 
-	job, err := s.queue.Enqueue(r.Context(), groupID, req.TemplateID, createdBy, req.Inputs)
+	opts := &queue.EnqueueOptions{
+		AutoRequeue:  req.AutoRequeue,
+		RequeueLimit: req.RequeueLimit,
+	}
+
+	job, err := s.queue.Enqueue(r.Context(), groupID, req.TemplateID, createdBy, req.Inputs, opts)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to add job")
 		s.writeError(w, http.StatusBadRequest, err.Error())
@@ -578,6 +587,46 @@ func (s *server) handleUnpauseJob(w http.ResponseWriter, r *http.Request) {
 	job, err := s.queue.Unpause(r.Context(), jobID)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to unpause job")
+		s.writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, job)
+}
+
+func (s *server) handleDisableAutoRequeue(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+
+	job, err := s.queue.DisableAutoRequeue(r.Context(), jobID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to disable auto-requeue")
+		s.writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, job)
+}
+
+type updateAutoRequeueRequest struct {
+	AutoRequeue  bool `json:"auto_requeue"`
+	RequeueLimit *int `json:"requeue_limit"`
+}
+
+func (s *server) handleUpdateAutoRequeue(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+
+	var req updateAutoRequeueRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+
+		return
+	}
+
+	job, err := s.queue.UpdateAutoRequeue(r.Context(), jobID, req.AutoRequeue, req.RequeueLimit)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to update auto-requeue")
 		s.writeError(w, http.StatusBadRequest, err.Error())
 
 		return

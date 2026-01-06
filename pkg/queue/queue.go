@@ -14,13 +14,19 @@ import (
 // JobChangeCallback is called when a job state changes.
 type JobChangeCallback func(job *store.Job)
 
+// EnqueueOptions contains optional parameters for enqueueing a job.
+type EnqueueOptions struct {
+	AutoRequeue  bool
+	RequeueLimit *int
+}
+
 // Service defines the interface for queue operations.
 type Service interface {
 	Start(ctx context.Context) error
 	Stop() error
 
 	// Queue operations.
-	Enqueue(ctx context.Context, groupID, templateID, createdBy string, inputs map[string]string) (*store.Job, error)
+	Enqueue(ctx context.Context, groupID, templateID, createdBy string, inputs map[string]string, opts *EnqueueOptions) (*store.Job, error)
 	Dequeue(ctx context.Context, groupID string) (*store.Job, error)
 	Peek(ctx context.Context, groupID string) (*store.Job, error)
 	Remove(ctx context.Context, jobID string) error
@@ -45,6 +51,10 @@ type Service interface {
 
 	// Update.
 	UpdateInputs(ctx context.Context, jobID string, inputs map[string]string) error
+
+	// Auto-requeue control.
+	DisableAutoRequeue(ctx context.Context, jobID string) (*store.Job, error)
+	UpdateAutoRequeue(ctx context.Context, jobID string, autoRequeue bool, requeueLimit *int) (*store.Job, error)
 
 	// Callbacks.
 	SetJobChangeCallback(cb JobChangeCallback)
@@ -100,6 +110,7 @@ func (s *service) Enqueue(
 	ctx context.Context,
 	groupID, templateID, createdBy string,
 	inputs map[string]string,
+	opts *EnqueueOptions,
 ) (*store.Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -149,15 +160,22 @@ func (s *service) Enqueue(
 		UpdatedAt:  now,
 	}
 
+	// Apply auto-requeue options.
+	if opts != nil {
+		job.AutoRequeue = opts.AutoRequeue
+		job.RequeueLimit = opts.RequeueLimit
+	}
+
 	if err := s.store.CreateJob(ctx, job); err != nil {
 		return nil, fmt.Errorf("creating job: %w", err)
 	}
 
 	s.log.WithFields(logrus.Fields{
-		"job_id":      job.ID,
-		"group_id":    groupID,
-		"template_id": templateID,
-		"position":    job.Position,
+		"job_id":       job.ID,
+		"group_id":     groupID,
+		"template_id":  templateID,
+		"position":     job.Position,
+		"auto_requeue": job.AutoRequeue,
 	}).Info("Job enqueued")
 
 	s.notifyJobChange(job)
@@ -386,6 +404,9 @@ func (s *service) MarkCompleted(ctx context.Context, jobID string) error {
 
 	s.notifyJobChange(job)
 
+	// Auto-requeue if enabled.
+	s.maybeAutoRequeue(ctx, job)
+
 	return nil
 }
 
@@ -419,6 +440,9 @@ func (s *service) MarkFailed(ctx context.Context, jobID, errMsg string) error {
 	}).Info("Job marked as failed")
 
 	s.notifyJobChange(job)
+
+	// Auto-requeue if enabled.
+	s.maybeAutoRequeue(ctx, job)
 
 	return nil
 }
@@ -454,6 +478,9 @@ func (s *service) MarkCancelled(ctx context.Context, jobID string) error {
 	s.log.WithField("job_id", jobID).Info("Job marked as cancelled")
 
 	s.notifyJobChange(job)
+
+	// Auto-requeue if enabled.
+	s.maybeAutoRequeue(ctx, job)
 
 	return nil
 }
@@ -558,4 +585,133 @@ func (s *service) UpdateInputs(ctx context.Context, jobID string, inputs map[str
 	s.log.WithField("job_id", jobID).Info("Job inputs updated")
 
 	return nil
+}
+
+// DisableAutoRequeue disables auto-requeue for a job.
+// This is useful for "stop after current run" functionality.
+func (s *service) DisableAutoRequeue(ctx context.Context, jobID string) (*store.Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("getting job: %w", err)
+	}
+
+	if job == nil {
+		return nil, fmt.Errorf("job not found: %s", jobID)
+	}
+
+	if !job.AutoRequeue {
+		return job, nil // Already disabled
+	}
+
+	job.AutoRequeue = false
+	job.UpdatedAt = time.Now()
+
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return nil, fmt.Errorf("updating job: %w", err)
+	}
+
+	s.log.WithField("job_id", jobID).Info("Auto-requeue disabled for job")
+
+	s.notifyJobChange(job)
+
+	return job, nil
+}
+
+// UpdateAutoRequeue updates auto-requeue settings for a pending, triggered, or running job.
+func (s *service) UpdateAutoRequeue(ctx context.Context, jobID string, autoRequeue bool, requeueLimit *int) (*store.Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("getting job: %w", err)
+	}
+
+	if job == nil {
+		return nil, fmt.Errorf("job not found: %s", jobID)
+	}
+
+	if job.Status != store.JobStatusPending && job.Status != store.JobStatusTriggered && job.Status != store.JobStatusRunning {
+		return nil, fmt.Errorf("can only update auto-requeue for pending, triggered, or running jobs, current status: %s", job.Status)
+	}
+
+	job.AutoRequeue = autoRequeue
+	job.RequeueLimit = requeueLimit
+	job.UpdatedAt = time.Now()
+
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return nil, fmt.Errorf("updating job: %w", err)
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"job_id":       jobID,
+		"auto_requeue": autoRequeue,
+	}).Info("Auto-requeue settings updated for job")
+
+	s.notifyJobChange(job)
+
+	return job, nil
+}
+
+// maybeAutoRequeue creates a new job if auto-requeue is enabled and limit not reached.
+// Must be called with s.mu already locked.
+func (s *service) maybeAutoRequeue(ctx context.Context, job *store.Job) {
+	if !job.AutoRequeue {
+		return
+	}
+
+	// Check if limit is reached.
+	if job.RequeueLimit != nil && job.RequeueCount >= *job.RequeueLimit {
+		s.log.WithFields(logrus.Fields{
+			"job_id":        job.ID,
+			"requeue_count": job.RequeueCount,
+			"requeue_limit": *job.RequeueLimit,
+		}).Info("Auto-requeue limit reached")
+
+		return
+	}
+
+	// Get max position for the new job.
+	maxPos, err := s.store.GetMaxPosition(ctx, job.GroupID)
+	if err != nil {
+		s.log.WithError(err).WithField("job_id", job.ID).Warn("Failed to get max position for auto-requeue")
+
+		return
+	}
+
+	now := time.Now()
+
+	newJob := &store.Job{
+		ID:           uuid.New().String(),
+		GroupID:      job.GroupID,
+		TemplateID:   job.TemplateID,
+		Priority:     job.Priority,
+		Position:     maxPos + 1,
+		Status:       store.JobStatusPending,
+		Paused:       false, // New job starts unpaused.
+		AutoRequeue:  true,
+		RequeueLimit: job.RequeueLimit,
+		RequeueCount: job.RequeueCount + 1,
+		Inputs:       job.Inputs,
+		CreatedBy:    job.CreatedBy,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	if err := s.store.CreateJob(ctx, newJob); err != nil {
+		s.log.WithError(err).WithField("job_id", job.ID).Warn("Failed to create auto-requeued job")
+
+		return
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"original_job_id": job.ID,
+		"new_job_id":      newJob.ID,
+		"requeue_count":   newJob.RequeueCount,
+	}).Info("Job auto-requeued")
+
+	s.notifyJobChange(newJob)
 }
