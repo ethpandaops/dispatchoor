@@ -58,9 +58,8 @@ type GitHubConfig struct {
 
 // DispatcherConfig contains dispatch loop settings.
 type DispatcherConfig struct {
-	Enabled       bool          `yaml:"enabled"`
-	Interval      time.Duration `yaml:"interval"`
-	MaxConcurrent int           `yaml:"max_concurrent"`
+	Enabled  bool          `yaml:"enabled"`
+	Interval time.Duration `yaml:"interval"`
 }
 
 // AuthConfig contains authentication settings.
@@ -245,10 +244,6 @@ func applyDefaults(cfg *Config) {
 
 	if cfg.Dispatcher.Interval == 0 {
 		cfg.Dispatcher.Interval = 10 * time.Second
-	}
-
-	if cfg.Dispatcher.MaxConcurrent == 0 {
-		cfg.Dispatcher.MaxConcurrent = 5
 	}
 
 	if cfg.Auth.SessionTTL == 0 {

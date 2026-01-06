@@ -542,7 +542,11 @@ func (s *SQLiteStore) ListJobsByGroup(
 		query += fmt.Sprintf(" AND status IN (%s)", strings.Join(placeholders, ","))
 	}
 
-	query += " ORDER BY position"
+	// Order: running/triggered jobs first by triggered_at, then pending jobs by position.
+	query += ` ORDER BY
+		CASE WHEN status IN ('triggered', 'running') THEN 0 ELSE 1 END,
+		CASE WHEN status IN ('triggered', 'running') THEN triggered_at END,
+		position`
 
 	return s.queryJobs(ctx, query, args...)
 }

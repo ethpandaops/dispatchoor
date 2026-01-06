@@ -31,8 +31,7 @@ type dispatcher struct {
 	queue    queue.Service
 	ghClient github.Client
 
-	interval      time.Duration
-	maxConcurrent int
+	interval time.Duration
 
 	cancel               context.CancelFunc
 	wg                   sync.WaitGroup
@@ -52,13 +51,12 @@ func NewDispatcher(
 	ghClient github.Client,
 ) Dispatcher {
 	return &dispatcher{
-		log:           log.WithField("component", "dispatcher"),
-		cfg:           cfg,
-		store:         st,
-		queue:         q,
-		ghClient:      ghClient,
-		interval:      cfg.Dispatcher.Interval,
-		maxConcurrent: cfg.Dispatcher.MaxConcurrent,
+		log:      log.WithField("component", "dispatcher"),
+		cfg:      cfg,
+		store:    st,
+		queue:    q,
+		ghClient: ghClient,
+		interval: cfg.Dispatcher.Interval,
 	}
 }
 
@@ -163,18 +161,6 @@ func (d *dispatcher) dispatch(ctx context.Context) error {
 // dispatchForGroup handles dispatching for a single group.
 func (d *dispatcher) dispatchForGroup(ctx context.Context, group *store.Group) error {
 	log := d.log.WithField("group", group.ID)
-
-	// Check if we already have too many running jobs for this group.
-	runningJobs, err := d.store.ListJobsByGroup(ctx, group.ID, store.JobStatusTriggered, store.JobStatusRunning)
-	if err != nil {
-		return fmt.Errorf("listing running jobs: %w", err)
-	}
-
-	if len(runningJobs) >= d.maxConcurrent {
-		log.WithField("running", len(runningJobs)).Debug("Max concurrent jobs reached")
-
-		return nil
-	}
 
 	// Get the next pending job.
 	job, err := d.queue.Peek(ctx, group.ID)

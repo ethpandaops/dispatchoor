@@ -186,12 +186,20 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
                 {template.owner}/{template.repo}
               </span>
             )}
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1" title="Created at">
               <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               {formatTime(job.created_at)}
             </span>
+            {job.triggered_at && (
+              <span className="flex items-center gap-1" title="Started at">
+                <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l14 9-14 9V3z" />
+                </svg>
+                {formatTime(job.triggered_at)}
+              </span>
+            )}
             {getElapsedTime() && (
               <span className="flex items-center gap-1">
                 <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

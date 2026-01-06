@@ -461,8 +461,8 @@ func (s *service) MarkCancelled(ctx context.Context, jobID string) error {
 		return fmt.Errorf("job not found: %s", jobID)
 	}
 
-	// Can only cancel pending or triggered jobs.
-	if job.Status != store.JobStatusPending && job.Status != store.JobStatusTriggered {
+	// Can only cancel pending, triggered, or running jobs.
+	if job.Status != store.JobStatusPending && job.Status != store.JobStatusTriggered && job.Status != store.JobStatusRunning {
 		return fmt.Errorf("cannot cancel job with status %s", job.Status)
 	}
 
