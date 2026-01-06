@@ -159,6 +159,12 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at)`,
+		// Migration: Add paused column to jobs table.
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN paused BOOLEAN DEFAULT false;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
 	}
 
 	for _, migration := range migrations {
@@ -431,9 +437,9 @@ func (s *PostgresStore) CreateJob(ctx context.Context, job *Job) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO jobs (id, group_id, template_id, priority, position, status, inputs, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status,
+		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, inputs, created_by, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status, job.Paused,
 		string(inputsJSON), job.CreatedBy, job.CreatedAt, job.UpdatedAt)
 
 	if err != nil {
@@ -456,11 +462,11 @@ func (s *PostgresStore) GetJob(ctx context.Context, id string) (*Job, error) {
 	var runURL, runnerName, errorMessage, createdBy sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, group_id, template_id, priority, position, status, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE id = $1
 	`, id).Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position, &job.Status,
-		&inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName, &completedAt,
+		&job.Paused, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName, &completedAt,
 		&errorMessage, &job.CreatedAt, &job.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -502,7 +508,7 @@ func (s *PostgresStore) ListJobsByGroup(
 	ctx context.Context, groupID string, statuses ...JobStatus,
 ) ([]*Job, error) {
 	query := `
-		SELECT id, group_id, template_id, priority, position, status, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE group_id = $1
 	`
@@ -541,7 +547,7 @@ func (s *PostgresStore) ListJobsByStatus(ctx context.Context, statuses ...JobSta
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, group_id, template_id, priority, position, status, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE status IN (%s) ORDER BY position
 	`, strings.Join(placeholders, ","))
@@ -571,7 +577,7 @@ func (s *PostgresStore) queryJobs(ctx context.Context, query string, args ...any
 		var runURL, runnerName, errorMessage, createdBy sql.NullString
 
 		if err := rows.Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position,
-			&job.Status, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName,
+			&job.Status, &job.Paused, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName,
 			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning job: %w", err)
 		}
@@ -615,11 +621,11 @@ func (s *PostgresStore) UpdateJob(ctx context.Context, job *Job) error {
 	job.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE jobs SET priority = $1, position = $2, status = $3, inputs = $4,
-			   triggered_at = $5, run_id = $6, run_url = $7, runner_name = $8,
-			   completed_at = $9, error_message = $10, updated_at = $11
-		WHERE id = $12
-	`, job.Priority, job.Position, job.Status, string(inputsJSON),
+		UPDATE jobs SET priority = $1, position = $2, status = $3, paused = $4, inputs = $5,
+			   triggered_at = $6, run_id = $7, run_url = $8, runner_name = $9,
+			   completed_at = $10, error_message = $11, updated_at = $12
+		WHERE id = $13
+	`, job.Priority, job.Position, job.Status, job.Paused, string(inputsJSON),
 		job.TriggeredAt, job.RunID, job.RunURL, job.RunnerName,
 		job.CompletedAt, job.ErrorMessage, job.UpdatedAt, job.ID)
 
@@ -664,17 +670,21 @@ func (s *PostgresStore) ReorderJobs(ctx context.Context, groupID string, jobIDs 
 }
 
 // GetNextPendingJob retrieves the next pending job for a group (lowest position).
+// Paused jobs are excluded from selection.
 func (s *PostgresStore) GetNextPendingJob(ctx context.Context, groupID string) (*Job, error) {
 	jobs, err := s.ListJobsByGroup(ctx, groupID, JobStatusPending)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(jobs) == 0 {
-		return nil, nil
+	// Find first non-paused job.
+	for _, job := range jobs {
+		if !job.Paused {
+			return job, nil
+		}
 	}
 
-	return jobs[0], nil
+	return nil, nil
 }
 
 // GetMaxPosition returns the maximum position for jobs in a group.

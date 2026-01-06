@@ -39,6 +39,10 @@ type Service interface {
 	MarkFailed(ctx context.Context, jobID, errMsg string) error
 	MarkCancelled(ctx context.Context, jobID string) error
 
+	// Pause/Unpause.
+	Pause(ctx context.Context, jobID string) (*store.Job, error)
+	Unpause(ctx context.Context, jobID string) (*store.Job, error)
+
 	// Update.
 	UpdateInputs(ctx context.Context, jobID string, inputs map[string]string) error
 
@@ -452,6 +456,78 @@ func (s *service) MarkCancelled(ctx context.Context, jobID string) error {
 	s.notifyJobChange(job)
 
 	return nil
+}
+
+// Pause pauses a pending job so it won't be scheduled.
+func (s *service) Pause(ctx context.Context, jobID string) (*store.Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("getting job: %w", err)
+	}
+
+	if job == nil {
+		return nil, fmt.Errorf("job not found: %s", jobID)
+	}
+
+	if job.Status != store.JobStatusPending {
+		return nil, fmt.Errorf("cannot pause job with status %s", job.Status)
+	}
+
+	if job.Paused {
+		return job, nil // Already paused
+	}
+
+	job.Paused = true
+	job.UpdatedAt = time.Now()
+
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return nil, fmt.Errorf("updating job: %w", err)
+	}
+
+	s.log.WithField("job_id", jobID).Info("Job paused")
+
+	s.notifyJobChange(job)
+
+	return job, nil
+}
+
+// Unpause unpauses a paused job so it can be scheduled.
+func (s *service) Unpause(ctx context.Context, jobID string) (*store.Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("getting job: %w", err)
+	}
+
+	if job == nil {
+		return nil, fmt.Errorf("job not found: %s", jobID)
+	}
+
+	if job.Status != store.JobStatusPending {
+		return nil, fmt.Errorf("cannot unpause job with status %s", job.Status)
+	}
+
+	if !job.Paused {
+		return job, nil // Already unpaused
+	}
+
+	job.Paused = false
+	job.UpdatedAt = time.Now()
+
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return nil, fmt.Errorf("updating job: %w", err)
+	}
+
+	s.log.WithField("job_id", jobID).Info("Job unpaused")
+
+	s.notifyJobChange(job)
+
+	return job, nil
 }
 
 // UpdateInputs updates the inputs for a pending job.

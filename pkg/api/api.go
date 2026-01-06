@@ -200,6 +200,8 @@ func (s *server) setupRouter() {
 				// Job management (admin).
 				r.Put("/jobs/{id}", s.handleUpdateJob)
 				r.Delete("/jobs/{id}", s.handleDeleteJob)
+				r.Post("/jobs/{id}/pause", s.handlePauseJob)
+				r.Post("/jobs/{id}/unpause", s.handleUnpauseJob)
 
 				// Runner refresh (admin).
 				r.Post("/runners/refresh", s.handleRefreshRunners)
@@ -554,6 +556,34 @@ func (s *server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+
+	job, err := s.queue.Pause(r.Context(), jobID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to pause job")
+		s.writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, job)
+}
+
+func (s *server) handleUnpauseJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+
+	job, err := s.queue.Unpause(r.Context(), jobID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to unpause job")
+		s.writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, job)
 }
 
 type reorderRequest struct {

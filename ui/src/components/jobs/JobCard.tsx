@@ -32,6 +32,20 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
     },
   });
 
+  const pauseMutation = useMutation({
+    mutationFn: () => api.pauseJob(job.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue', job.group_id] });
+    },
+  });
+
+  const unpauseMutation = useMutation({
+    mutationFn: () => api.unpauseJob(job.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue', job.group_id] });
+    },
+  });
+
   const colors = statusColors[job.status] || statusColors.pending;
 
   const formatTime = (dateStr: string | null) => {
@@ -74,9 +88,9 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
         <div className="flex-1 min-w-0">
           {/* Header */}
           <div className="flex items-center gap-2 mb-2">
-            <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${colors.bg} ${colors.text}`}>
-              <span className={`size-1.5 rounded-full ${colors.dot}`} />
-              {job.status}
+            <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${job.paused ? 'bg-zinc-500/10 text-zinc-400' : colors.bg + ' ' + colors.text}`}>
+              <span className={`size-1.5 rounded-full ${job.paused ? 'bg-zinc-400' : colors.dot}`} />
+              {job.paused ? 'paused' : job.status}
             </span>
             <span className="text-xs text-zinc-500">#{job.position}</span>
           </div>
@@ -143,6 +157,30 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
                 <path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z"/>
               </svg>
             </a>
+          )}
+          {isAdmin && job.status === 'pending' && !job.paused && (
+            <button
+              onClick={() => pauseMutation.mutate()}
+              disabled={pauseMutation.isPending}
+              className="rounded-sm p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
+              title="Pause job"
+            >
+              <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+              </svg>
+            </button>
+          )}
+          {isAdmin && job.status === 'pending' && job.paused && (
+            <button
+              onClick={() => unpauseMutation.mutate()}
+              disabled={unpauseMutation.isPending}
+              className="rounded-sm p-1.5 text-zinc-500 hover:bg-green-500/10 hover:text-green-400 disabled:opacity-50"
+              title="Resume job"
+            >
+              <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z"/>
+              </svg>
+            </button>
           )}
           {isAdmin && (job.status === 'pending' || job.status === 'failed') && (
             <button

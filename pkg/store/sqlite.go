@@ -154,10 +154,17 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at)`,
+		// Migration: Add paused column to jobs table.
+		`ALTER TABLE jobs ADD COLUMN paused INTEGER DEFAULT 0`,
 	}
 
 	for _, migration := range migrations {
 		if _, err := s.db.ExecContext(ctx, migration); err != nil {
+			// Ignore "duplicate column" errors for ALTER TABLE migrations.
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
+
 			return fmt.Errorf("running migration: %w", err)
 		}
 	}
@@ -433,9 +440,9 @@ func (s *SQLiteStore) CreateJob(ctx context.Context, job *Job) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO jobs (id, group_id, template_id, priority, position, status, inputs, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status,
+		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, inputs, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status, job.Paused,
 		string(inputsJSON), job.CreatedBy, job.CreatedAt, job.UpdatedAt)
 
 	if err != nil {
@@ -455,14 +462,16 @@ func (s *SQLiteStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	var runID sql.NullInt64
 
+	var paused int
+
 	var runURL, runnerName, errorMessage, createdBy sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, group_id, template_id, priority, position, status, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE id = ?
 	`, id).Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position, &job.Status,
-		&inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName, &completedAt,
+		&paused, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName, &completedAt,
 		&errorMessage, &job.CreatedAt, &job.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -491,6 +500,7 @@ func (s *SQLiteStore) GetJob(ctx context.Context, id string) (*Job, error) {
 		job.RunID = &runID.Int64
 	}
 
+	job.Paused = paused == 1
 	job.RunURL = runURL.String
 	job.RunnerName = runnerName.String
 	job.ErrorMessage = errorMessage.String
@@ -504,7 +514,7 @@ func (s *SQLiteStore) ListJobsByGroup(
 	ctx context.Context, groupID string, statuses ...JobStatus,
 ) ([]*Job, error) {
 	query := `
-		SELECT id, group_id, template_id, priority, position, status, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE group_id = ?
 	`
@@ -541,7 +551,7 @@ func (s *SQLiteStore) ListJobsByStatus(ctx context.Context, statuses ...JobStatu
 	}
 
 	query := fmt.Sprintf(`
-		SELECT id, group_id, template_id, priority, position, status, inputs, created_by,
+		SELECT id, group_id, template_id, priority, position, status, paused, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE status IN (%s) ORDER BY position
 	`, strings.Join(placeholders, ","))
@@ -568,10 +578,12 @@ func (s *SQLiteStore) queryJobs(ctx context.Context, query string, args ...any) 
 
 		var runID sql.NullInt64
 
+		var paused int
+
 		var runURL, runnerName, errorMessage, createdBy sql.NullString
 
 		if err := rows.Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position,
-			&job.Status, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName,
+			&job.Status, &paused, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName,
 			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning job: %w", err)
 		}
@@ -594,6 +606,7 @@ func (s *SQLiteStore) queryJobs(ctx context.Context, query string, args ...any) 
 			job.RunID = &runID.Int64
 		}
 
+		job.Paused = paused == 1
 		job.RunURL = runURL.String
 		job.RunnerName = runnerName.String
 		job.ErrorMessage = errorMessage.String
@@ -615,11 +628,11 @@ func (s *SQLiteStore) UpdateJob(ctx context.Context, job *Job) error {
 	job.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE jobs SET priority = ?, position = ?, status = ?, inputs = ?,
+		UPDATE jobs SET priority = ?, position = ?, status = ?, paused = ?, inputs = ?,
 			   triggered_at = ?, run_id = ?, run_url = ?, runner_name = ?,
 			   completed_at = ?, error_message = ?, updated_at = ?
 		WHERE id = ?
-	`, job.Priority, job.Position, job.Status, string(inputsJSON),
+	`, job.Priority, job.Position, job.Status, job.Paused, string(inputsJSON),
 		job.TriggeredAt, job.RunID, job.RunURL, job.RunnerName,
 		job.CompletedAt, job.ErrorMessage, job.UpdatedAt, job.ID)
 
@@ -664,17 +677,21 @@ func (s *SQLiteStore) ReorderJobs(ctx context.Context, groupID string, jobIDs []
 }
 
 // GetNextPendingJob retrieves the next pending job for a group (lowest position).
+// Paused jobs are excluded from selection.
 func (s *SQLiteStore) GetNextPendingJob(ctx context.Context, groupID string) (*Job, error) {
 	jobs, err := s.ListJobsByGroup(ctx, groupID, JobStatusPending)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(jobs) == 0 {
-		return nil, nil
+	// Find first non-paused job.
+	for _, job := range jobs {
+		if !job.Paused {
+			return job, nil
+		}
 	}
 
-	return jobs[0], nil
+	return nil, nil
 }
 
 // GetMaxPosition returns the maximum position for jobs in a group.

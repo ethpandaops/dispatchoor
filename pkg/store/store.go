@@ -115,6 +115,7 @@ type Job struct {
 	Priority     int               `json:"priority"`
 	Position     int               `json:"position"`
 	Status       JobStatus         `json:"status"`
+	Paused       bool              `json:"paused"`
 	Inputs       map[string]string `json:"inputs"`
 	CreatedBy    string            `json:"created_by"`
 	TriggeredAt  *time.Time        `json:"triggered_at"`

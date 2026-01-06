@@ -159,6 +159,14 @@ class ApiClient {
     await this.request<void>(`/jobs/${id}`, { method: 'DELETE' });
   }
 
+  async pauseJob(id: string): Promise<Job> {
+    return this.request<Job>(`/jobs/${id}/pause`, { method: 'POST' });
+  }
+
+  async unpauseJob(id: string): Promise<Job> {
+    return this.request<Job>(`/jobs/${id}/unpause`, { method: 'POST' });
+  }
+
   async reorderQueue(groupId: string, jobIds: string[]): Promise<void> {
     await this.request<void>(`/groups/${groupId}/queue/reorder`, {
       method: 'PUT',

@@ -47,6 +47,7 @@ export interface Job {
   priority: number;
   position: number;
   status: JobStatus;
+  paused: boolean;
   inputs: Record<string, string>;
   created_by: string;
   triggered_at: string | null;
