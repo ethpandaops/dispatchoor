@@ -43,7 +43,7 @@ export function Header() {
       </button>
 
       <div className="flex flex-1 items-center gap-2">
-        <h1 className="text-lg font-semibold text-zinc-100">dispatchoor</h1>
+        <h1 className="text-lg font-semibold text-zinc-100">Dispatchoor</h1>
         <span className="rounded-sm bg-blue-500/20 px-2 py-0.5 text-xs font-medium text-blue-400">
           beta
         </span>
