@@ -77,7 +77,8 @@ export function GroupPage() {
   const queryClient = useQueryClient();
   const isAdmin = user?.role === 'admin';
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [activeTab, setActiveTab] = useState<'queue' | 'history'>('queue');
+  const [preselectedTemplateId, setPreselectedTemplateId] = useState<string | undefined>();
+  const [activeTab, setActiveTab] = useState<'queue' | 'history' | 'templates'>('queue');
   const { subscribe, unsubscribe } = useWebSocket();
 
   const sensors = useSensors(
@@ -247,6 +248,16 @@ export function GroupPage() {
               >
                 History
               </button>
+              <button
+                onClick={() => setActiveTab('templates')}
+                className={`border-b-2 pb-3 text-sm font-medium transition-colors ${
+                  activeTab === 'templates'
+                    ? 'border-blue-500 text-blue-400'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Templates ({templates.length})
+              </button>
             </nav>
           </div>
 
@@ -296,7 +307,7 @@ export function GroupPage() {
                 )}
               </div>
             </div>
-          ) : (
+          ) : activeTab === 'history' ? (
             <div className="space-y-2">
               {history.length > 0 ? (
                 history.map((job) => (
@@ -305,6 +316,56 @@ export function GroupPage() {
               ) : (
                 <div className="rounded-sm border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
                   No job history
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {templates.length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {templates.map((template) => (
+                    <div
+                      key={template.id}
+                      className="rounded-sm border border-zinc-800 bg-zinc-900 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="truncate text-sm font-medium text-zinc-200">
+                            {template.name}
+                          </h4>
+                          <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
+                            <svg className="size-3.5 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                            </svg>
+                            <span className="truncate">{template.owner}/{template.repo}</span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500">
+                            <svg className="size-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                            </svg>
+                            <span className="truncate">{template.workflow_id}</span>
+                            <span className="text-zinc-600">@</span>
+                            <span>{template.ref}</span>
+                          </div>
+                        </div>
+                        {isAdmin && (
+                          <button
+                            onClick={() => {
+                              setPreselectedTemplateId(template.id);
+                              setShowAddDialog(true);
+                            }}
+                            className="shrink-0 rounded-sm bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+                          >
+                            Add
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-sm border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
+                  No templates configured
                 </div>
               )}
             </div>
@@ -371,7 +432,11 @@ export function GroupPage() {
         groupId={id!}
         templates={templates}
         isOpen={showAddDialog}
-        onClose={() => setShowAddDialog(false)}
+        onClose={() => {
+          setShowAddDialog(false);
+          setPreselectedTemplateId(undefined);
+        }}
+        preselectedTemplateId={preselectedTemplateId}
       />
     </div>
   );

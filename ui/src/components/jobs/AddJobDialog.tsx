@@ -8,14 +8,21 @@ interface AddJobDialogProps {
   templates: JobTemplate[];
   isOpen: boolean;
   onClose: () => void;
+  preselectedTemplateId?: string;
 }
 
-export function AddJobDialog({ groupId, templates, isOpen, onClose }: AddJobDialogProps) {
+export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedTemplateId }: AddJobDialogProps) {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const queryClient = useQueryClient();
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
+
+  // Filter templates by search query
+  const filteredTemplates = templates.filter((t) =>
+    t.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   useEffect(() => {
     if (selectedTemplate) {
@@ -26,10 +33,17 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose }: AddJobDial
   }, [selectedTemplate]);
 
   useEffect(() => {
-    if (isOpen && templates.length > 0 && !selectedTemplateId) {
-      setSelectedTemplateId(templates[0].id);
+    if (isOpen) {
+      // Use preselected template if provided, otherwise use first template
+      if (preselectedTemplateId) {
+        setSelectedTemplateId(preselectedTemplateId);
+      } else if (templates.length > 0 && !selectedTemplateId) {
+        setSelectedTemplateId(templates[0].id);
+      }
+      // Reset search when dialog opens
+      setSearchQuery('');
     }
-  }, [isOpen, templates, selectedTemplateId]);
+  }, [isOpen, templates, preselectedTemplateId]);
 
   const createMutation = useMutation({
     mutationFn: () => api.createJob(groupId, selectedTemplateId, inputs),
@@ -70,23 +84,70 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose }: AddJobDial
 
         {/* Content */}
         <div className="p-4 space-y-4 overflow-y-auto flex-1">
-          {/* Template selector */}
+          {/* Template selector with search */}
           <div>
-            <label htmlFor="template" className="block text-sm font-medium text-zinc-300 mb-1">
+            <label className="block text-sm font-medium text-zinc-300 mb-1">
               Job Template
             </label>
-            <select
-              id="template"
-              value={selectedTemplateId}
-              onChange={(e) => setSelectedTemplateId(e.target.value)}
-              className="w-full rounded-sm border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-            >
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
+            {/* Search input */}
+            <div className="relative mb-2">
+              <svg
+                className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search templates..."
+                className="w-full rounded-sm border border-zinc-700 bg-zinc-800 py-2 pl-10 pr-3 text-zinc-100 placeholder-zinc-500 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >
+                  <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+            {/* Template list */}
+            <div className="max-h-48 overflow-y-auto rounded-sm border border-zinc-700 bg-zinc-800">
+              {filteredTemplates.length > 0 ? (
+                filteredTemplates.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    onClick={() => setSelectedTemplateId(template.id)}
+                    className={`w-full px-3 py-2 text-left text-sm transition-colors ${
+                      selectedTemplateId === template.id
+                        ? 'bg-blue-600/20 text-blue-400'
+                        : 'text-zinc-300 hover:bg-zinc-700'
+                    }`}
+                  >
+                    <div className="font-medium">{template.name}</div>
+                    <div className="text-xs text-zinc-500">
+                      {template.owner}/{template.repo}
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="px-3 py-4 text-center text-sm text-zinc-500">
+                  No templates found
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Template info */}
