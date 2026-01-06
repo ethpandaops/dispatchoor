@@ -1,0 +1,876 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/ethpandaops/dispatchoor/pkg/auth"
+	"github.com/ethpandaops/dispatchoor/pkg/config"
+	"github.com/ethpandaops/dispatchoor/pkg/metrics"
+	"github.com/ethpandaops/dispatchoor/pkg/queue"
+	"github.com/ethpandaops/dispatchoor/pkg/store"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/sirupsen/logrus"
+)
+
+// Server is the HTTP API server.
+type Server interface {
+	Start(ctx context.Context) error
+	Stop() error
+	BroadcastRunnerChange(runner *store.Runner)
+}
+
+// server implements Server.
+type server struct {
+	log     logrus.FieldLogger
+	cfg     *config.Config
+	store   store.Store
+	queue   queue.Service
+	auth    auth.Service
+	metrics *metrics.Metrics
+	hub     *Hub
+	srv     *http.Server
+	router  chi.Router
+}
+
+// Ensure server implements Server.
+var _ Server = (*server)(nil)
+
+// NewServer creates a new API server.
+func NewServer(log logrus.FieldLogger, cfg *config.Config, st store.Store, q queue.Service, authSvc auth.Service, m *metrics.Metrics) Server {
+	hub := NewHub(log)
+
+	s := &server{
+		log:     log.WithField("component", "api"),
+		cfg:     cfg,
+		store:   st,
+		queue:   q,
+		auth:    authSvc,
+		metrics: m,
+		hub:     hub,
+	}
+
+	// Set up callback to broadcast job state changes via WebSocket.
+	q.SetJobChangeCallback(func(job *store.Job) {
+		hub.BroadcastJobState(job)
+	})
+
+	s.setupRouter()
+
+	return s
+}
+
+// Start starts the HTTP server.
+func (s *server) Start(ctx context.Context) error {
+	s.srv = &http.Server{
+		Addr:              s.cfg.Server.Listen,
+		Handler:           s.router,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	s.log.WithField("addr", s.cfg.Server.Listen).Info("Starting API server")
+
+	// Start WebSocket hub.
+	go s.hub.Run(ctx)
+
+	go func() {
+		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			s.log.WithError(err).Error("Server error")
+		}
+	}()
+
+	return nil
+}
+
+// Stop gracefully shuts down the HTTP server.
+func (s *server) Stop() error {
+	if s.srv == nil {
+		return nil
+	}
+
+	s.log.Info("Stopping API server")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	return s.srv.Shutdown(ctx)
+}
+
+// BroadcastRunnerChange broadcasts a runner status change to all matching groups.
+func (s *server) BroadcastRunnerChange(runner *store.Runner) {
+	// Find all groups whose labels the runner matches.
+	for _, groupCfg := range s.cfg.Groups.GitHub {
+		if runnerMatchesLabels(runner.Labels, groupCfg.RunnerLabels) {
+			s.hub.BroadcastRunnerStatus(runner, groupCfg.ID)
+		}
+	}
+}
+
+// runnerMatchesLabels checks if a runner has all the required labels.
+func runnerMatchesLabels(runnerLabels, requiredLabels []string) bool {
+	runnerLabelSet := make(map[string]bool, len(runnerLabels))
+	for _, label := range runnerLabels {
+		runnerLabelSet[label] = true
+	}
+
+	for _, required := range requiredLabels {
+		if !runnerLabelSet[required] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (s *server) setupRouter() {
+	r := chi.NewRouter()
+
+	// Middleware.
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(60 * time.Second))
+
+	// CORS.
+	if len(s.cfg.Server.CORSOrigins) > 0 {
+		r.Use(corsMiddleware(s.cfg.Server.CORSOrigins))
+	}
+
+	// Health check (public).
+	r.Get("/health", s.handleHealth)
+
+	// Metrics endpoint (public).
+	r.Handle("/metrics", promhttp.Handler())
+
+	// API v1.
+	r.Route("/api/v1", func(r chi.Router) {
+		// Auth routes (public).
+		r.Post("/auth/login", s.handleLogin)
+		r.Get("/auth/github", s.handleGitHubAuth)
+		r.Get("/auth/github/callback", s.handleGitHubCallback)
+
+		// WebSocket (authentication handled in handler).
+		r.Get("/ws", s.handleWebSocket)
+
+		// Protected routes.
+		r.Group(func(r chi.Router) {
+			r.Use(auth.AuthMiddleware(s.auth))
+
+			// Auth (authenticated).
+			r.Post("/auth/logout", s.handleLogout)
+			r.Get("/auth/me", s.handleMe)
+
+			// Groups (read-only).
+			r.Get("/groups", s.handleListGroups)
+			r.Get("/groups/{id}", s.handleGetGroup)
+
+			// Job templates (read-only).
+			r.Get("/groups/{id}/templates", s.handleListJobTemplates)
+			r.Get("/templates/{id}", s.handleGetJobTemplate)
+
+			// Queue (read-only).
+			r.Get("/groups/{id}/queue", s.handleGetQueue)
+			r.Get("/groups/{id}/history", s.handleGetHistory)
+
+			// Jobs (read-only).
+			r.Get("/jobs/{id}", s.handleGetJob)
+
+			// Runners (read-only).
+			r.Get("/groups/{id}/runners", s.handleGetRunners)
+			r.Get("/runners", s.handleListRunners)
+
+			// System (read-only).
+			r.Get("/status", s.handleStatus)
+
+			// Admin-only routes.
+			r.Group(func(r chi.Router) {
+				r.Use(auth.RequireAdmin())
+
+				// Queue management (admin).
+				r.Post("/groups/{id}/queue", s.handleAddJob)
+				r.Put("/groups/{id}/queue/reorder", s.handleReorderQueue)
+
+				// Job management (admin).
+				r.Put("/jobs/{id}", s.handleUpdateJob)
+				r.Delete("/jobs/{id}", s.handleDeleteJob)
+
+				// Runner refresh (admin).
+				r.Post("/runners/refresh", s.handleRefreshRunners)
+			})
+		})
+	})
+
+	s.router = r
+}
+
+func corsMiddleware(origins []string) func(http.Handler) http.Handler {
+	allowAll := len(origins) == 1 && origins[0] == "*"
+
+	originSet := make(map[string]bool, len(origins))
+	for _, origin := range origins {
+		originSet[origin] = true
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+
+			if allowAll || originSet[origin] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// ============================================================================
+// Response helpers
+// ============================================================================
+
+func (s *server) writeJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		s.log.WithError(err).Error("Failed to encode JSON response")
+	}
+}
+
+func (s *server) writeError(w http.ResponseWriter, status int, message string) {
+	s.writeJSON(w, status, map[string]string{"error": message})
+}
+
+// ============================================================================
+// Handlers
+// ============================================================================
+
+func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *server) handleStatus(w http.ResponseWriter, _ *http.Request) {
+	s.writeJSON(w, http.StatusOK, map[string]any{
+		"status":    "ok",
+		"version":   "dev",
+		"timestamp": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (s *server) handleListGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.store.ListGroups(r.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list groups")
+		s.writeError(w, http.StatusInternalServerError, "Failed to list groups")
+
+		return
+	}
+
+	// Enrich with stats.
+	type groupWithStats struct {
+		*store.Group
+		QueuedJobs    int `json:"queued_jobs"`
+		RunningJobs   int `json:"running_jobs"`
+		IdleRunners   int `json:"idle_runners"`
+		BusyRunners   int `json:"busy_runners"`
+		TotalRunners  int `json:"total_runners"`
+		TemplateCount int `json:"template_count"`
+	}
+
+	result := make([]groupWithStats, 0, len(groups))
+
+	for _, group := range groups {
+		stats := groupWithStats{Group: group}
+
+		// Get job counts.
+		pendingJobs, err := s.store.ListJobsByGroup(r.Context(), group.ID, store.JobStatusPending)
+		if err == nil {
+			stats.QueuedJobs = len(pendingJobs)
+		}
+
+		runningJobs, err := s.store.ListJobsByGroup(r.Context(), group.ID, store.JobStatusTriggered, store.JobStatusRunning)
+		if err == nil {
+			stats.RunningJobs = len(runningJobs)
+		}
+
+		// Get runner counts.
+		runners, err := s.store.ListRunnersByLabels(r.Context(), group.RunnerLabels)
+		if err == nil {
+			for _, runner := range runners {
+				stats.TotalRunners++
+
+				if runner.Busy {
+					stats.BusyRunners++
+				} else if runner.Status == store.RunnerStatusOnline {
+					stats.IdleRunners++
+				}
+			}
+		}
+
+		// Get template count.
+		templates, err := s.store.ListJobTemplatesByGroup(r.Context(), group.ID)
+		if err == nil {
+			stats.TemplateCount = len(templates)
+		}
+
+		result = append(result, stats)
+	}
+
+	s.writeJSON(w, http.StatusOK, result)
+}
+
+func (s *server) handleGetGroup(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	group, err := s.store.GetGroup(r.Context(), id)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get group")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get group")
+
+		return
+	}
+
+	if group == nil {
+		s.writeError(w, http.StatusNotFound, "Group not found")
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, group)
+}
+
+func (s *server) handleListJobTemplates(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+
+	templates, err := s.store.ListJobTemplatesByGroup(r.Context(), groupID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list job templates")
+		s.writeError(w, http.StatusInternalServerError, "Failed to list job templates")
+
+		return
+	}
+
+	if templates == nil {
+		templates = []*store.JobTemplate{}
+	}
+
+	s.writeJSON(w, http.StatusOK, templates)
+}
+
+func (s *server) handleGetJobTemplate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	template, err := s.store.GetJobTemplate(r.Context(), id)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get job template")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get job template")
+
+		return
+	}
+
+	if template == nil {
+		s.writeError(w, http.StatusNotFound, "Job template not found")
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, template)
+}
+
+func (s *server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+
+	jobs, err := s.store.ListJobsByGroup(r.Context(), groupID, store.JobStatusPending, store.JobStatusTriggered, store.JobStatusRunning)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get queue")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get queue")
+
+		return
+	}
+
+	if jobs == nil {
+		jobs = []*store.Job{}
+	}
+
+	s.writeJSON(w, http.StatusOK, jobs)
+}
+
+func (s *server) handleGetRunners(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+
+	group, err := s.store.GetGroup(r.Context(), groupID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get group")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get group")
+
+		return
+	}
+
+	if group == nil {
+		s.writeError(w, http.StatusNotFound, "Group not found")
+
+		return
+	}
+
+	runners, err := s.store.ListRunnersByLabels(r.Context(), group.RunnerLabels)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list runners")
+		s.writeError(w, http.StatusInternalServerError, "Failed to list runners")
+
+		return
+	}
+
+	if runners == nil {
+		runners = []*store.Runner{}
+	}
+
+	s.writeJSON(w, http.StatusOK, runners)
+}
+
+func (s *server) handleListRunners(w http.ResponseWriter, r *http.Request) {
+	runners, err := s.store.ListRunners(r.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list runners")
+		s.writeError(w, http.StatusInternalServerError, "Failed to list runners")
+
+		return
+	}
+
+	if runners == nil {
+		runners = []*store.Runner{}
+	}
+
+	s.writeJSON(w, http.StatusOK, runners)
+}
+
+// ============================================================================
+// Job Handlers
+// ============================================================================
+
+type addJobRequest struct {
+	TemplateID string            `json:"template_id"`
+	Inputs     map[string]string `json:"inputs"`
+}
+
+func (s *server) handleAddJob(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+
+	var req addJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+
+		return
+	}
+
+	if req.TemplateID == "" {
+		s.writeError(w, http.StatusBadRequest, "template_id is required")
+
+		return
+	}
+
+	// TODO: Get user from auth context.
+	createdBy := "anonymous"
+
+	job, err := s.queue.Enqueue(r.Context(), groupID, req.TemplateID, createdBy, req.Inputs)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to add job")
+		s.writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusCreated, job)
+}
+
+func (s *server) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+
+	job, err := s.queue.GetJob(r.Context(), jobID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get job")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get job")
+
+		return
+	}
+
+	if job == nil {
+		s.writeError(w, http.StatusNotFound, "Job not found")
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, job)
+}
+
+type updateJobRequest struct {
+	Inputs map[string]string `json:"inputs"`
+}
+
+func (s *server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+
+	var req updateJobRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+
+		return
+	}
+
+	if err := s.queue.UpdateInputs(r.Context(), jobID, req.Inputs); err != nil {
+		s.log.WithError(err).Error("Failed to update job")
+		s.writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	job, _ := s.queue.GetJob(r.Context(), jobID)
+	s.writeJSON(w, http.StatusOK, job)
+}
+
+func (s *server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+
+	if err := s.queue.Remove(r.Context(), jobID); err != nil {
+		s.log.WithError(err).Error("Failed to delete job")
+		s.writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type reorderRequest struct {
+	JobIDs []string `json:"job_ids"`
+}
+
+func (s *server) handleReorderQueue(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+
+	var req reorderRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+
+		return
+	}
+
+	if len(req.JobIDs) == 0 {
+		s.writeError(w, http.StatusBadRequest, "job_ids is required")
+
+		return
+	}
+
+	if err := s.queue.Reorder(r.Context(), groupID, req.JobIDs); err != nil {
+		s.log.WithError(err).Error("Failed to reorder queue")
+		s.writeError(w, http.StatusBadRequest, err.Error())
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+
+	limit := 50
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	jobs, err := s.queue.ListHistory(r.Context(), groupID, limit)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get history")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get history")
+
+		return
+	}
+
+	if jobs == nil {
+		jobs = []*store.Job{}
+	}
+
+	s.writeJSON(w, http.StatusOK, jobs)
+}
+
+func (s *server) handleRefreshRunners(w http.ResponseWriter, _ *http.Request) {
+	// TODO: Implement runner refresh by calling poller.ForceRefresh()
+	// For now, just return success.
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	ServeWs(s.hub, s.auth, w, r)
+}
+
+// ============================================================================
+// Auth Handlers
+// ============================================================================
+
+type loginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type loginResponse struct {
+	Token string      `json:"token"`
+	User  *store.User `json:"user"`
+}
+
+func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+
+		return
+	}
+
+	if req.Username == "" || req.Password == "" {
+		s.writeError(w, http.StatusBadRequest, "Username and password are required")
+
+		return
+	}
+
+	user, token, err := s.auth.AuthenticateBasic(r.Context(), req.Username, req.Password)
+	if err != nil {
+		s.log.WithError(err).WithField("username", req.Username).Warn("Login failed")
+		s.writeError(w, http.StatusUnauthorized, "Invalid credentials")
+
+		return
+	}
+
+	// Set session cookie.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(s.cfg.Auth.SessionTTL.Seconds()),
+	})
+
+	s.writeJSON(w, http.StatusOK, loginResponse{
+		Token: token,
+		User:  user,
+	})
+}
+
+func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Get token from cookie or header.
+	token := ""
+
+	if cookie, err := r.Cookie("session"); err == nil {
+		token = cookie.Value
+	}
+
+	if token == "" {
+		authHeader := r.Header.Get("Authorization")
+		if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+			token = authHeader[7:]
+		}
+	}
+
+	if token != "" {
+		if err := s.auth.Logout(r.Context(), token); err != nil {
+			s.log.WithError(err).Warn("Logout error")
+		}
+	}
+
+	// Clear session cookie.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	if user == nil {
+		s.writeError(w, http.StatusUnauthorized, "Not authenticated")
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, user)
+}
+
+func (s *server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.Auth.GitHub.Enabled {
+		s.writeError(w, http.StatusNotFound, "GitHub auth is not enabled")
+
+		return
+	}
+
+	// Generate state for CSRF protection.
+	// In production, store this in a session/cookie and validate on callback.
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		state = "dispatchoor"
+	}
+
+	authURL := s.auth.GetGitHubAuthURL(state)
+	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
+}
+
+func (s *server) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.Auth.GitHub.Enabled {
+		s.writeError(w, http.StatusNotFound, "GitHub auth is not enabled")
+
+		return
+	}
+
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		s.writeError(w, http.StatusBadRequest, "Missing code parameter")
+
+		return
+	}
+
+	// TODO: Validate state parameter for CSRF protection.
+
+	user, token, err := s.auth.AuthenticateGitHub(r.Context(), code)
+	if err != nil {
+		s.log.WithError(err).Warn("GitHub auth failed")
+		s.writeError(w, http.StatusUnauthorized, "Authentication failed")
+
+		return
+	}
+
+	// Set session cookie.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(s.cfg.Auth.SessionTTL.Seconds()),
+	})
+
+	// Check if client wants JSON response (API clients) or redirect (browsers).
+	if r.Header.Get("Accept") == "application/json" {
+		s.writeJSON(w, http.StatusOK, loginResponse{
+			Token: token,
+			User:  user,
+		})
+
+		return
+	}
+
+	// Redirect to frontend for browser-based flow.
+	redirectURL := r.URL.Query().Get("redirect")
+	if redirectURL == "" {
+		redirectURL = "/"
+	}
+
+	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+}
+
+// SyncGroupsFromConfig synchronizes groups and job templates from configuration.
+func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.Store, cfg *config.Config) error {
+	log.Info("Syncing groups from configuration")
+
+	now := time.Now()
+
+	for _, groupCfg := range cfg.Groups.GitHub {
+		// Check if group exists.
+		existing, err := st.GetGroup(ctx, groupCfg.ID)
+		if err != nil {
+			return fmt.Errorf("checking group %s: %w", groupCfg.ID, err)
+		}
+
+		group := &store.Group{
+			ID:           groupCfg.ID,
+			Name:         groupCfg.Name,
+			Description:  groupCfg.Description,
+			RunnerLabels: groupCfg.RunnerLabels,
+			Enabled:      true,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+
+		if existing == nil {
+			log.WithField("group", groupCfg.ID).Info("Creating group")
+
+			if err := st.CreateGroup(ctx, group); err != nil {
+				return fmt.Errorf("creating group %s: %w", groupCfg.ID, err)
+			}
+		} else {
+			log.WithField("group", groupCfg.ID).Info("Updating group")
+
+			group.CreatedAt = existing.CreatedAt
+
+			if err := st.UpdateGroup(ctx, group); err != nil {
+				return fmt.Errorf("updating group %s: %w", groupCfg.ID, err)
+			}
+		}
+
+		// Sync job templates (upsert instead of delete/recreate to preserve jobs).
+		for _, jobCfg := range groupCfg.WorkflowDispatchJobs {
+			template := &store.JobTemplate{
+				ID:            jobCfg.ID,
+				GroupID:       groupCfg.ID,
+				Name:          jobCfg.Name,
+				Owner:         jobCfg.Owner,
+				Repo:          jobCfg.Repo,
+				WorkflowID:    jobCfg.WorkflowID,
+				Ref:           jobCfg.Ref,
+				DefaultInputs: jobCfg.Inputs,
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			}
+
+			// Check if template exists.
+			existingTemplate, err := st.GetJobTemplate(ctx, jobCfg.ID)
+			if err != nil {
+				return fmt.Errorf("checking job template %s: %w", jobCfg.ID, err)
+			}
+
+			if existingTemplate == nil {
+				log.WithFields(logrus.Fields{
+					"group":    groupCfg.ID,
+					"template": jobCfg.ID,
+				}).Info("Creating job template")
+
+				if err := st.CreateJobTemplate(ctx, template); err != nil {
+					return fmt.Errorf("creating job template %s: %w", jobCfg.ID, err)
+				}
+			} else {
+				log.WithFields(logrus.Fields{
+					"group":    groupCfg.ID,
+					"template": jobCfg.ID,
+				}).Debug("Updating job template")
+
+				template.CreatedAt = existingTemplate.CreatedAt
+
+				if err := st.UpdateJobTemplate(ctx, template); err != nil {
+					return fmt.Errorf("updating job template %s: %w", jobCfg.ID, err)
+				}
+			}
+		}
+	}
+
+	return nil
+}

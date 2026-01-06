@@ -1,0 +1,52 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+coverage.html
+
+# Database
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Configuration (may contain secrets)
+config.yaml
+!config.example.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Database
+.*db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+ui/node_modules/
+ui/dist/
+ui/.vite/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/

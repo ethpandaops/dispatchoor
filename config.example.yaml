@@ -1,0 +1,89 @@
+# dispatchoor configuration example
+# Copy this file to config.yaml and customize as needed.
+
+server:
+  listen: ":9090"
+  cors_origins:
+    - "*"
+
+database:
+  driver: sqlite
+  sqlite:
+    path: ./dispatchoor.db
+  # For PostgreSQL:
+  # driver: postgres
+  # postgres:
+  #   host: localhost
+  #   port: 5432
+  #   user: dispatchoor
+  #   password: ${DB_PASSWORD}
+  #   database: dispatchoor
+  #   sslmode: disable
+
+github:
+  token: ${GITHUB_TOKEN}
+  poll_interval: 30s
+  rate_limit_buffer: 100
+
+dispatcher:
+  enabled: true
+  interval: 10s
+  max_concurrent: 5
+
+auth:
+  session_ttl: 24h
+  basic:
+    enabled: true
+    users:
+      - username: admin
+        password: ${ADMIN_PASSWORD}
+        role: admin
+      - username: viewer
+        password: ${VIEWER_PASSWORD}
+        role: readonly
+  github:
+    enabled: false
+    client_id: ${GITHUB_CLIENT_ID}
+    client_secret: ${GITHUB_CLIENT_SECRET}
+    allowed_orgs:
+      - ethpandaops
+    role_mapping:
+      ethpandaops: admin
+
+# Groups define runner pools and their dispatchable workflow jobs
+groups:
+  github:
+    - id: sync-tests
+      name: Sync Tests
+      description: Ethereum sync testing jobs
+      runner_labels:
+        - self-hosted
+        - synctest
+        - Disk2TB
+      workflow_dispatch_jobs:
+        - id: sync-test-hoodi-geth-prysm
+          name: Sync Test (Hoodi) - geth/prysm
+          owner: ethpandaops
+          repo: syncoor-tests
+          workflow_id: syncoor.yaml
+          ref: master
+          inputs:
+            run-timeout-minutes: "1380"
+            el-client: '"geth"'
+            cl-client: '"prysm"'
+            config: >-
+              {
+                "network": "hoodi",
+                "consensus": {
+                  "syncType": "checkpoint",
+                  "nodeType": "fullnode",
+                  "images": {
+                    "prysm": "gcr.io/offchainlabs/prysm/beacon-chain:stable"
+                  }
+                },
+                "execution": {
+                  "images": {
+                    "geth": "ethereum/client-go:stable"
+                  }
+                }
+              }

@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+bin/
+*.db
+*.sqlite
+
+# Development files
+.env
+.env.*
+config.yaml
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node modules (will be installed fresh in Docker)
+ui/node_modules/
+
+# UI build artifacts (will be built fresh in Docker)
+ui/dist/
+
+# Test files
+*_test.go
+**/*_test.go
+testdata/
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Misc
+Makefile
+docker-compose*.yml
