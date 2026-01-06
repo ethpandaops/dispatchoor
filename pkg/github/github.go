@@ -29,6 +29,7 @@ type Client interface {
 	) error
 	GetWorkflowRun(ctx context.Context, owner, repo string, runID int64) (*WorkflowRun, error)
 	ListWorkflowRuns(ctx context.Context, owner, repo, workflowID string, opts ListWorkflowRunsOpts) ([]*WorkflowRun, error)
+	ListWorkflowRunJobs(ctx context.Context, owner, repo string, runID int64) ([]*WorkflowJob, error)
 
 	// Rate limiting.
 	RateLimitRemaining() int
@@ -63,6 +64,16 @@ type WorkflowRun struct {
 	HTMLURL    string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+// WorkflowJob represents a job within a GitHub Actions workflow run.
+type WorkflowJob struct {
+	ID         int64
+	Name       string
+	Status     string // queued, in_progress, completed
+	Conclusion string // success, failure, cancelled, etc.
+	RunnerName string
+	StartedAt  time.Time
 }
 
 // client implements Client.
@@ -383,4 +394,59 @@ func (c *client) ListWorkflowRuns(
 	}).Debug("Listed workflow runs")
 
 	return result, nil
+}
+
+// ListWorkflowRunJobs lists jobs for a specific workflow run.
+func (c *client) ListWorkflowRunJobs(ctx context.Context, owner, repo string, runID int64) ([]*WorkflowJob, error) {
+	c.log.WithFields(logrus.Fields{
+		"owner":  owner,
+		"repo":   repo,
+		"run_id": runID,
+	}).Debug("Listing workflow run jobs")
+
+	var allJobs []*WorkflowJob
+
+	opts := &github.ListWorkflowJobsOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
+	}
+
+	for {
+		jobs, resp, err := c.gh.Actions.ListWorkflowJobs(ctx, owner, repo, runID, opts)
+		if err != nil {
+			return nil, fmt.Errorf("listing workflow jobs: %w", err)
+		}
+
+		c.updateRateLimit(resp)
+
+		for _, job := range jobs.Jobs {
+			wj := &WorkflowJob{
+				ID:         job.GetID(),
+				Name:       job.GetName(),
+				Status:     job.GetStatus(),
+				Conclusion: job.GetConclusion(),
+				RunnerName: job.GetRunnerName(),
+			}
+
+			if job.StartedAt != nil {
+				wj.StartedAt = job.StartedAt.Time
+			}
+
+			allJobs = append(allJobs, wj)
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+
+		opts.Page = resp.NextPage
+	}
+
+	c.log.WithFields(logrus.Fields{
+		"owner":  owner,
+		"repo":   repo,
+		"run_id": runID,
+		"count":  len(allJobs),
+	}).Debug("Listed workflow run jobs")
+
+	return allJobs, nil
 }

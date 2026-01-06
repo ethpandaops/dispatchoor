@@ -339,12 +339,28 @@ func (d *dispatcher) trackJob(ctx context.Context, job *store.Job) error {
 
 	case "in_progress":
 		if job.Status == store.JobStatusTriggered {
-			// TODO: Extract runner name from the workflow run if available.
-			if err := d.queue.MarkRunning(ctx, job.ID, ""); err != nil {
+			// Extract runner name from the workflow jobs.
+			runnerName := ""
+
+			jobs, err := d.ghClient.ListWorkflowRunJobs(ctx, template.Owner, template.Repo, *job.RunID)
+			if err != nil {
+				log.WithError(err).Warn("Failed to get workflow jobs for runner name")
+			} else if len(jobs) > 0 {
+				// Get runner name from the first job (typically there's one main job).
+				for _, j := range jobs {
+					if j.RunnerName != "" {
+						runnerName = j.RunnerName
+
+						break
+					}
+				}
+			}
+
+			if err := d.queue.MarkRunning(ctx, job.ID, runnerName); err != nil {
 				return fmt.Errorf("marking job as running: %w", err)
 			}
 
-			log.Info("Job is now running")
+			log.WithField("runner", runnerName).Info("Job is now running")
 		}
 
 	case "completed":
