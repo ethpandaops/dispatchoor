@@ -18,6 +18,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { api } from '../api/client';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuthStore } from '../stores/authStore';
@@ -889,180 +890,196 @@ export function GroupPage() {
 
           {/* Content */}
           {activeTab === 'queue' ? (
-            <div className="grid gap-6 lg:grid-cols-2">
-              {/* Pending jobs with drag-and-drop */}
-              <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-medium text-zinc-300">
-                    Pending ({pendingJobs.length})
-                    {isAdmin && pendingJobs.length > 1 && !pendingSelectionMode && (
-                      <span className="ml-2 text-xs text-zinc-500">(drag to reorder)</span>
-                    )}
-                  </h3>
-                  {isAdmin && pendingJobs.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      {pendingSelectionMode && (
-                        <>
-                          <button
-                            onClick={() => setSelectedPendingIds(new Set(pendingJobs.map((j) => j.id)))}
-                            className="text-xs text-zinc-400 hover:text-zinc-200"
-                          >
-                            Select all
-                          </button>
-                          <span className="text-zinc-600">|</span>
-                          <button
-                            onClick={() => setSelectedPendingIds(new Set())}
-                            className="text-xs text-zinc-400 hover:text-zinc-200"
-                          >
-                            Deselect all
-                          </button>
-                          {selectedPendingIds.size > 0 && (
-                            <span className="text-xs text-zinc-500">
-                              ({selectedPendingIds.size} selected)
-                            </span>
-                          )}
-                        </>
+            <LayoutGroup>
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* Pending jobs with drag-and-drop */}
+                <div>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-zinc-300">
+                      Pending ({pendingJobs.length})
+                      {isAdmin && pendingJobs.length > 1 && !pendingSelectionMode && (
+                        <span className="ml-2 text-xs text-zinc-500">(drag to reorder)</span>
                       )}
-                      <button
-                        onClick={() => {
-                          setPendingSelectionMode(!pendingSelectionMode);
-                          setSelectedPendingIds(new Set());
-                        }}
-                        className={`rounded-xs px-2 py-1 text-xs ${
-                          pendingSelectionMode
-                            ? 'bg-zinc-700 text-zinc-200'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      >
-                        {pendingSelectionMode ? 'Cancel' : 'Select'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {queueLoading ? (
-                  <div className="text-zinc-500">Loading...</div>
-                ) : pendingJobs.length > 0 ? (
-                  pendingSelectionMode ? (
-                    <div className="space-y-2">
-                      {pendingJobs.map((job) => (
-                        <div
-                          key={job.id}
-                          className={`flex items-start gap-3 ${
-                            selectedPendingIds.has(job.id)
-                              ? 'rounded-xs ring-1 ring-blue-500/30'
-                              : ''
+                    </h3>
+                    {isAdmin && pendingJobs.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        {pendingSelectionMode && (
+                          <>
+                            <button
+                              onClick={() => setSelectedPendingIds(new Set(pendingJobs.map((j) => j.id)))}
+                              className="text-xs text-zinc-400 hover:text-zinc-200"
+                            >
+                              Select all
+                            </button>
+                            <span className="text-zinc-600">|</span>
+                            <button
+                              onClick={() => setSelectedPendingIds(new Set())}
+                              className="text-xs text-zinc-400 hover:text-zinc-200"
+                            >
+                              Deselect all
+                            </button>
+                            {selectedPendingIds.size > 0 && (
+                              <span className="text-xs text-zinc-500">
+                                ({selectedPendingIds.size} selected)
+                              </span>
+                            )}
+                          </>
+                        )}
+                        <button
+                          onClick={() => {
+                            setPendingSelectionMode(!pendingSelectionMode);
+                            setSelectedPendingIds(new Set());
+                          }}
+                          className={`rounded-xs px-2 py-1 text-xs ${
+                            pendingSelectionMode
+                              ? 'bg-zinc-700 text-zinc-200'
+                              : 'text-zinc-400 hover:text-zinc-200'
                           }`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={selectedPendingIds.has(job.id)}
-                            onChange={() => setSelectedPendingIds(toggleSelection(selectedPendingIds, job.id))}
-                            className="mt-4 size-4 shrink-0 rounded-xs border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <JobCard job={job} template={getTemplateForJob(job)} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <DndContext
-                      sensors={sensors}
-                      collisionDetection={closestCenter}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <SortableContext items={pendingJobs.map((j) => j.id)} strategy={verticalListSortingStrategy}>
-                        <div className="space-y-2">
-                          {pendingJobs.map((job) => (
-                            <SortableJobCard key={job.id} job={job} template={getTemplateForJob(job)} />
-                          ))}
-                        </div>
-                      </SortableContext>
-                    </DndContext>
-                  )
-                ) : (
-                  <div className="rounded-xs border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
-                    No pending jobs
+                          {pendingSelectionMode ? 'Cancel' : 'Select'}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-
-              {/* Running jobs */}
-              <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-medium text-zinc-300">Running ({activeJobs.length})</h3>
-                  {isAdmin && activeJobs.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      {runningSelectionMode && (
-                        <>
-                          <button
-                            onClick={() => setSelectedRunningIds(new Set(activeJobs.map((j) => j.id)))}
-                            className="text-xs text-zinc-400 hover:text-zinc-200"
-                          >
-                            Select all
-                          </button>
-                          <span className="text-zinc-600">|</span>
-                          <button
-                            onClick={() => setSelectedRunningIds(new Set())}
-                            className="text-xs text-zinc-400 hover:text-zinc-200"
-                          >
-                            Deselect all
-                          </button>
-                          {selectedRunningIds.size > 0 && (
-                            <span className="text-xs text-zinc-500">
-                              ({selectedRunningIds.size} selected)
-                            </span>
-                          )}
-                        </>
-                      )}
-                      <button
-                        onClick={() => {
-                          setRunningSelectionMode(!runningSelectionMode);
-                          setSelectedRunningIds(new Set());
-                        }}
-                        className={`rounded-xs px-2 py-1 text-xs ${
-                          runningSelectionMode
-                            ? 'bg-zinc-700 text-zinc-200'
-                            : 'text-zinc-400 hover:text-zinc-200'
-                        }`}
+                  {queueLoading ? (
+                    <div className="text-zinc-500">Loading...</div>
+                  ) : pendingJobs.length > 0 ? (
+                    pendingSelectionMode ? (
+                      <div className="space-y-2">
+                        <AnimatePresence mode="popLayout">
+                          {pendingJobs.map((job) => (
+                            <motion.div
+                              key={job.id}
+                              layoutId={`job-${job.id}`}
+                              initial={{ opacity: 0, x: -30, scale: 0.95 }}
+                              animate={{ opacity: 1, x: 0, scale: 1 }}
+                              exit={{ opacity: 0, x: 30, scale: 0.95 }}
+                              transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                              className={`flex items-start gap-3 ${
+                                selectedPendingIds.has(job.id)
+                                  ? 'rounded-xs ring-1 ring-blue-500/30'
+                                  : ''
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedPendingIds.has(job.id)}
+                                onChange={() => setSelectedPendingIds(toggleSelection(selectedPendingIds, job.id))}
+                                className="mt-4 size-4 shrink-0 rounded-xs border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <JobCard job={job} template={getTemplateForJob(job)} />
+                              </div>
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+                      </div>
+                    ) : (
+                      <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={handleDragEnd}
                       >
-                        {runningSelectionMode ? 'Cancel' : 'Select'}
-                      </button>
+                        <SortableContext items={pendingJobs.map((j) => j.id)} strategy={verticalListSortingStrategy}>
+                          <div className="space-y-2">
+                            {pendingJobs.map((job) => (
+                              <SortableJobCard key={job.id} job={job} template={getTemplateForJob(job)} />
+                            ))}
+                          </div>
+                        </SortableContext>
+                      </DndContext>
+                    )
+                  ) : (
+                    <div className="rounded-xs border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
+                      No pending jobs
                     </div>
                   )}
                 </div>
-                {activeJobs.length > 0 ? (
-                  <div className="space-y-2">
-                    {activeJobs.map((job) => (
-                      <div
-                        key={job.id}
-                        className={`flex items-start gap-3 ${
-                          runningSelectionMode && selectedRunningIds.has(job.id)
-                            ? 'rounded-xs ring-1 ring-blue-500/30'
-                            : ''
-                        }`}
-                      >
+
+                {/* Running jobs */}
+                <div>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-zinc-300">Running ({activeJobs.length})</h3>
+                    {isAdmin && activeJobs.length > 0 && (
+                      <div className="flex items-center gap-2">
                         {runningSelectionMode && (
-                          <input
-                            type="checkbox"
-                            checked={selectedRunningIds.has(job.id)}
-                            onChange={() => setSelectedRunningIds(toggleSelection(selectedRunningIds, job.id))}
-                            className="mt-4 size-4 shrink-0 rounded-xs border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
-                          />
+                          <>
+                            <button
+                              onClick={() => setSelectedRunningIds(new Set(activeJobs.map((j) => j.id)))}
+                              className="text-xs text-zinc-400 hover:text-zinc-200"
+                            >
+                              Select all
+                            </button>
+                            <span className="text-zinc-600">|</span>
+                            <button
+                              onClick={() => setSelectedRunningIds(new Set())}
+                              className="text-xs text-zinc-400 hover:text-zinc-200"
+                            >
+                              Deselect all
+                            </button>
+                            {selectedRunningIds.size > 0 && (
+                              <span className="text-xs text-zinc-500">
+                                ({selectedRunningIds.size} selected)
+                              </span>
+                            )}
+                          </>
                         )}
-                        <div className="min-w-0 flex-1">
-                          <JobCard job={job} template={getTemplateForJob(job)} />
-                        </div>
+                        <button
+                          onClick={() => {
+                            setRunningSelectionMode(!runningSelectionMode);
+                            setSelectedRunningIds(new Set());
+                          }}
+                          className={`rounded-xs px-2 py-1 text-xs ${
+                            runningSelectionMode
+                              ? 'bg-zinc-700 text-zinc-200'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          {runningSelectionMode ? 'Cancel' : 'Select'}
+                        </button>
                       </div>
-                    ))}
+                    )}
                   </div>
-                ) : (
-                  <div className="rounded-xs border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
-                    No running jobs
-                  </div>
-                )}
+                  {activeJobs.length > 0 ? (
+                    <div className="space-y-2">
+                      <AnimatePresence mode="popLayout">
+                        {activeJobs.map((job) => (
+                          <motion.div
+                            key={job.id}
+                            layoutId={`job-${job.id}`}
+                            initial={{ opacity: 0, x: 30, scale: 0.95 }}
+                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+                            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                            className={`flex items-start gap-3 ${
+                              runningSelectionMode && selectedRunningIds.has(job.id)
+                                ? 'rounded-xs ring-1 ring-blue-500/30'
+                                : ''
+                            }`}
+                          >
+                            {runningSelectionMode && (
+                              <input
+                                type="checkbox"
+                                checked={selectedRunningIds.has(job.id)}
+                                onChange={() => setSelectedRunningIds(toggleSelection(selectedRunningIds, job.id))}
+                                className="mt-4 size-4 shrink-0 rounded-xs border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
+                              />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <JobCard job={job} template={getTemplateForJob(job)} />
+                            </div>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  ) : (
+                    <div className="rounded-xs border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
+                      No running jobs
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            </LayoutGroup>
           ) : activeTab === 'history' ? (
             <div className="space-y-4">
               {/* View mode toggle and filters */}
