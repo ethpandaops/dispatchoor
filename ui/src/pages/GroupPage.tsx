@@ -200,6 +200,26 @@ export function GroupPage() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const { subscribe, unsubscribe } = useWebSocket();
 
+  // Bulk selection state
+  const [templateSelectionMode, setTemplateSelectionMode] = useState(false);
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<Set<string>>(new Set());
+  const [runningSelectionMode, setRunningSelectionMode] = useState(false);
+  const [selectedRunningIds, setSelectedRunningIds] = useState<Set<string>>(new Set());
+  const [pendingSelectionMode, setPendingSelectionMode] = useState(false);
+  const [selectedPendingIds, setSelectedPendingIds] = useState<Set<string>>(new Set());
+  const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number; action: string } | null>(null);
+  const [bulkActionConfirm, setBulkActionConfirm] = useState<{
+    title: string;
+    message: string;
+    items?: { name: string; warning?: boolean; id?: string }[];
+    warning?: string;
+    showDuplicateCheckbox?: boolean;
+    buttonLabel: string;
+    buttonClass: string;
+    onConfirm: (includeDuplicates: boolean) => void;
+  } | null>(null);
+  const [confirmDuplicates, setConfirmDuplicates] = useState(false);
+
   // Template filter state from URL
   type TemplateStatusFilter = 'unlabeled' | 'auto-requeue' | 'no-auto-requeue';
   const validTemplateStatusFilters: TemplateStatusFilter[] = ['unlabeled', 'auto-requeue', 'no-auto-requeue'];
@@ -431,6 +451,302 @@ export function GroupPage() {
     updateTemplateFilters({ status: null, labels: {} });
   };
 
+  // Selection helpers
+  const toggleSelection = (set: Set<string>, id: string) => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  };
+
+  // Clear selections when switching tabs or filters change
+  useEffect(() => {
+    setSelectedTemplateIds(new Set());
+    setTemplateSelectionMode(false);
+    setSelectedRunningIds(new Set());
+    setRunningSelectionMode(false);
+    setSelectedPendingIds(new Set());
+    setPendingSelectionMode(false);
+  }, [activeTab]);
+
+  // Bulk action executor
+  const executeBulkAction = async (
+    ids: Set<string>,
+    action: (id: string) => Promise<unknown>,
+    actionName: string,
+    onComplete: () => void
+  ) => {
+    const idArray = [...ids];
+    setBulkProgress({ current: 0, total: idArray.length, action: actionName });
+
+    let completed = 0;
+    const results = await Promise.allSettled(
+      idArray.map(async (id) => {
+        const result = await action(id);
+        completed++;
+        setBulkProgress({ current: completed, total: idArray.length, action: actionName });
+        return result;
+      })
+    );
+
+    setBulkProgress(null);
+    onComplete();
+    queryClient.invalidateQueries({ queryKey: ['queue', id] });
+    queryClient.invalidateQueries({ queryKey: ['groups'] });
+
+    const failures = results.filter((r) => r.status === 'rejected');
+    if (failures.length > 0) {
+      console.error(`${failures.length} operations failed`);
+    }
+  };
+
+  // Bulk add to queue - execute
+  const executeBulkAddToQueue = async (withAutoRequeue: boolean, includeDuplicates: boolean) => {
+    let templatesToAdd = [...selectedTemplateIds];
+
+    // Skip templates that already have auto-requeue unless confirmed
+    if (!includeDuplicates) {
+      templatesToAdd = templatesToAdd.filter((tid) => !autoRequeueTemplateIds.has(tid));
+    }
+
+    if (templatesToAdd.length === 0) {
+      setBulkActionConfirm(null);
+      setConfirmDuplicates(false);
+      setSelectedTemplateIds(new Set());
+      setTemplateSelectionMode(false);
+      return;
+    }
+
+    const actionLabel = withAutoRequeue ? 'Adding to queue with auto-requeue' : 'Adding to queue';
+    setBulkProgress({ current: 0, total: templatesToAdd.length, action: actionLabel });
+
+    let completed = 0;
+    const results = await Promise.allSettled(
+      templatesToAdd.map(async (templateId) => {
+        const template = templates.find((t) => t.id === templateId);
+        const result = await api.createJob(id!, templateId, template?.default_inputs, withAutoRequeue);
+        completed++;
+        setBulkProgress({ current: completed, total: templatesToAdd.length, action: actionLabel });
+        return result;
+      })
+    );
+
+    setBulkProgress(null);
+    setSelectedTemplateIds(new Set());
+    setTemplateSelectionMode(false);
+    setBulkActionConfirm(null);
+    setConfirmDuplicates(false);
+    queryClient.invalidateQueries({ queryKey: ['queue', id] });
+    queryClient.invalidateQueries({ queryKey: ['groups'] });
+
+    const failures = results.filter((r) => r.status === 'rejected');
+    if (failures.length > 0) {
+      console.error(`${failures.length} jobs failed to create`);
+    }
+  };
+
+  // Bulk add to queue - show confirmation
+  const handleBulkAddToQueue = () => {
+    const selectedTemplates = [...selectedTemplateIds].map((tid) => {
+      const template = templates.find((t) => t.id === tid);
+      return {
+        id: tid,
+        name: template?.name || tid,
+        warning: autoRequeueTemplateIds.has(tid),
+      };
+    });
+    const withExistingAutoRequeue = selectedTemplates.filter((t) => t.warning);
+    const hasExistingAutoRequeue = withExistingAutoRequeue.length > 0;
+    const templatesWithoutDuplicates = selectedTemplates.filter((t) => !t.warning);
+
+    const warning = hasExistingAutoRequeue
+      ? `${withExistingAutoRequeue.length} template(s) marked below already have auto-requeue jobs and will be skipped to avoid duplicates.`
+      : undefined;
+
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Add to Queue',
+      message: hasExistingAutoRequeue
+        ? `Add ${templatesWithoutDuplicates.length} of ${selectedTemplateIds.size} template(s) to the queue?`
+        : `Add ${selectedTemplateIds.size} template(s) to the queue?`,
+      items: selectedTemplates,
+      warning,
+      showDuplicateCheckbox: hasExistingAutoRequeue,
+      buttonLabel: 'Add to Queue',
+      buttonClass: 'bg-blue-600 hover:bg-blue-700',
+      onConfirm: (includeDuplicates) => executeBulkAddToQueue(false, includeDuplicates),
+    });
+  };
+
+  // Bulk add to queue with auto-requeue - show confirmation
+  const handleBulkAddToQueueWithAutoRequeue = () => {
+    const selectedTemplates = [...selectedTemplateIds].map((tid) => {
+      const template = templates.find((t) => t.id === tid);
+      return {
+        id: tid,
+        name: template?.name || tid,
+        warning: autoRequeueTemplateIds.has(tid),
+      };
+    });
+    const withExistingAutoRequeue = selectedTemplates.filter((t) => t.warning);
+    const hasExistingAutoRequeue = withExistingAutoRequeue.length > 0;
+    const templatesWithoutDuplicates = selectedTemplates.filter((t) => !t.warning);
+
+    const warning = hasExistingAutoRequeue
+      ? `${withExistingAutoRequeue.length} template(s) marked below already have auto-requeue jobs and will be skipped to avoid duplicates.`
+      : undefined;
+
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Add to Queue with Auto-requeue',
+      message: hasExistingAutoRequeue
+        ? `Add ${templatesWithoutDuplicates.length} of ${selectedTemplateIds.size} template(s) to the queue with auto-requeue enabled?`
+        : `Add ${selectedTemplateIds.size} template(s) to the queue with auto-requeue enabled?`,
+      items: selectedTemplates,
+      warning,
+      showDuplicateCheckbox: hasExistingAutoRequeue,
+      buttonLabel: 'Add with Auto-requeue',
+      buttonClass: 'bg-purple-600 hover:bg-purple-700',
+      onConfirm: (includeDuplicates) => executeBulkAddToQueue(true, includeDuplicates),
+    });
+  };
+
+  // Running jobs bulk actions
+  const handleBulkCancel = () => {
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Cancel Jobs',
+      message: `Cancel ${selectedRunningIds.size} running job(s)?`,
+      warning: 'This will attempt to cancel the GitHub workflow runs. Jobs that have already completed may not be affected.',
+      buttonLabel: 'Cancel Jobs',
+      buttonClass: 'bg-red-600 hover:bg-red-700',
+      onConfirm: () => {
+        executeBulkAction(
+          selectedRunningIds,
+          (jobId) => api.cancelJob(jobId),
+          'Cancelling jobs',
+          () => {
+            setSelectedRunningIds(new Set());
+            setRunningSelectionMode(false);
+            setBulkActionConfirm(null);
+          }
+        );
+      },
+    });
+  };
+
+  const handleBulkEnableAutoRequeue = () => {
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Enable Auto-requeue',
+      message: `Enable auto-requeue for ${selectedRunningIds.size} job(s)?`,
+      buttonLabel: 'Enable Auto-requeue',
+      buttonClass: 'bg-purple-600 hover:bg-purple-700',
+      onConfirm: () => {
+        executeBulkAction(
+          selectedRunningIds,
+          (jobId) => api.updateAutoRequeue(jobId, true, null),
+          'Enabling auto-requeue',
+          () => {
+            setSelectedRunningIds(new Set());
+            setRunningSelectionMode(false);
+            setBulkActionConfirm(null);
+          }
+        );
+      },
+    });
+  };
+
+  const handleBulkDisableAutoRequeue = () => {
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Disable Auto-requeue',
+      message: `Disable auto-requeue for ${selectedRunningIds.size} job(s)?`,
+      buttonLabel: 'Disable Auto-requeue',
+      buttonClass: 'bg-zinc-600 hover:bg-zinc-500',
+      onConfirm: () => {
+        executeBulkAction(
+          selectedRunningIds,
+          (jobId) => api.updateAutoRequeue(jobId, false, null),
+          'Disabling auto-requeue',
+          () => {
+            setSelectedRunningIds(new Set());
+            setRunningSelectionMode(false);
+            setBulkActionConfirm(null);
+          }
+        );
+      },
+    });
+  };
+
+  // Pending jobs bulk actions
+  const handleBulkPause = () => {
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Pause Jobs',
+      message: `Pause ${selectedPendingIds.size} pending job(s)?`,
+      buttonLabel: 'Pause Jobs',
+      buttonClass: 'bg-amber-600 hover:bg-amber-700',
+      onConfirm: () => {
+        executeBulkAction(
+          selectedPendingIds,
+          (jobId) => api.pauseJob(jobId),
+          'Pausing jobs',
+          () => {
+            setSelectedPendingIds(new Set());
+            setPendingSelectionMode(false);
+            setBulkActionConfirm(null);
+          }
+        );
+      },
+    });
+  };
+
+  const handleBulkUnpause = () => {
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Resume Jobs',
+      message: `Resume ${selectedPendingIds.size} paused job(s)?`,
+      buttonLabel: 'Resume Jobs',
+      buttonClass: 'bg-green-600 hover:bg-green-700',
+      onConfirm: () => {
+        executeBulkAction(
+          selectedPendingIds,
+          (jobId) => api.unpauseJob(jobId),
+          'Resuming jobs',
+          () => {
+            setSelectedPendingIds(new Set());
+            setPendingSelectionMode(false);
+            setBulkActionConfirm(null);
+          }
+        );
+      },
+    });
+  };
+
+  const handleBulkRemove = () => {
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Remove Jobs',
+      message: `Remove ${selectedPendingIds.size} pending job(s) from the queue?`,
+      warning: 'This action cannot be undone.',
+      buttonLabel: 'Remove Jobs',
+      buttonClass: 'bg-red-600 hover:bg-red-700',
+      onConfirm: () => {
+        executeBulkAction(
+          selectedPendingIds,
+          (jobId) => api.deleteJob(jobId),
+          'Removing jobs',
+          () => {
+            setSelectedPendingIds(new Set());
+            setPendingSelectionMode(false);
+            setBulkActionConfirm(null);
+          }
+        );
+      },
+    });
+  };
+
   // Group history jobs by template for grouped view
   const groupedHistory = useMemo(() => {
     const groups = new Map<string, { template: JobTemplate | undefined; jobs: Job[] }>();
@@ -577,10 +893,70 @@ export function GroupPage() {
               {/* Active jobs */}
               {activeJobs.length > 0 && (
                 <div>
-                  <h3 className="mb-3 text-sm font-medium text-zinc-300">Running</h3>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-zinc-300">Running</h3>
+                    {isAdmin && (
+                      <div className="flex items-center gap-2">
+                        {runningSelectionMode && (
+                          <>
+                            <button
+                              onClick={() => setSelectedRunningIds(new Set(activeJobs.map((j) => j.id)))}
+                              className="text-xs text-zinc-400 hover:text-zinc-200"
+                            >
+                              Select all
+                            </button>
+                            <span className="text-zinc-600">|</span>
+                            <button
+                              onClick={() => setSelectedRunningIds(new Set())}
+                              className="text-xs text-zinc-400 hover:text-zinc-200"
+                            >
+                              Deselect all
+                            </button>
+                            {selectedRunningIds.size > 0 && (
+                              <span className="text-xs text-zinc-500">
+                                ({selectedRunningIds.size} selected)
+                              </span>
+                            )}
+                          </>
+                        )}
+                        <button
+                          onClick={() => {
+                            setRunningSelectionMode(!runningSelectionMode);
+                            setSelectedRunningIds(new Set());
+                          }}
+                          className={`rounded-sm px-2 py-1 text-xs ${
+                            runningSelectionMode
+                              ? 'bg-zinc-700 text-zinc-200'
+                              : 'text-zinc-400 hover:text-zinc-200'
+                          }`}
+                        >
+                          {runningSelectionMode ? 'Cancel' : 'Select'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <div className="space-y-2">
                     {activeJobs.map((job) => (
-                      <JobCard key={job.id} job={job} template={getTemplateForJob(job)} />
+                      <div
+                        key={job.id}
+                        className={`flex items-start gap-3 ${
+                          runningSelectionMode && selectedRunningIds.has(job.id)
+                            ? 'rounded-sm ring-1 ring-blue-500/30'
+                            : ''
+                        }`}
+                      >
+                        {runningSelectionMode && (
+                          <input
+                            type="checkbox"
+                            checked={selectedRunningIds.has(job.id)}
+                            onChange={() => setSelectedRunningIds(toggleSelection(selectedRunningIds, job.id))}
+                            className="mt-4 size-4 shrink-0 rounded-sm border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
+                          />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <JobCard job={job} template={getTemplateForJob(job)} />
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -588,28 +964,94 @@ export function GroupPage() {
 
               {/* Pending jobs with drag-and-drop */}
               <div>
-                <h3 className="mb-3 text-sm font-medium text-zinc-300">
-                  Pending
-                  {isAdmin && pendingJobs.length > 1 && (
-                    <span className="ml-2 text-xs text-zinc-500">(drag to reorder)</span>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-medium text-zinc-300">
+                    Pending
+                    {isAdmin && pendingJobs.length > 1 && !pendingSelectionMode && (
+                      <span className="ml-2 text-xs text-zinc-500">(drag to reorder)</span>
+                    )}
+                  </h3>
+                  {isAdmin && pendingJobs.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      {pendingSelectionMode && (
+                        <>
+                          <button
+                            onClick={() => setSelectedPendingIds(new Set(pendingJobs.map((j) => j.id)))}
+                            className="text-xs text-zinc-400 hover:text-zinc-200"
+                          >
+                            Select all
+                          </button>
+                          <span className="text-zinc-600">|</span>
+                          <button
+                            onClick={() => setSelectedPendingIds(new Set())}
+                            className="text-xs text-zinc-400 hover:text-zinc-200"
+                          >
+                            Deselect all
+                          </button>
+                          {selectedPendingIds.size > 0 && (
+                            <span className="text-xs text-zinc-500">
+                              ({selectedPendingIds.size} selected)
+                            </span>
+                          )}
+                        </>
+                      )}
+                      <button
+                        onClick={() => {
+                          setPendingSelectionMode(!pendingSelectionMode);
+                          setSelectedPendingIds(new Set());
+                        }}
+                        className={`rounded-xs px-2 py-1 text-xs ${
+                          pendingSelectionMode
+                            ? 'bg-zinc-700 text-zinc-200'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {pendingSelectionMode ? 'Cancel' : 'Select'}
+                      </button>
+                    </div>
                   )}
-                </h3>
+                </div>
                 {queueLoading ? (
                   <div className="text-zinc-500">Loading...</div>
                 ) : pendingJobs.length > 0 ? (
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleDragEnd}
-                  >
-                    <SortableContext items={pendingJobs.map((j) => j.id)} strategy={verticalListSortingStrategy}>
-                      <div className="space-y-2">
-                        {pendingJobs.map((job) => (
-                          <SortableJobCard key={job.id} job={job} template={getTemplateForJob(job)} />
-                        ))}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
+                  pendingSelectionMode ? (
+                    <div className="space-y-2">
+                      {pendingJobs.map((job) => (
+                        <div
+                          key={job.id}
+                          className={`flex items-start gap-3 ${
+                            selectedPendingIds.has(job.id)
+                              ? 'rounded-xs ring-1 ring-blue-500/30'
+                              : ''
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedPendingIds.has(job.id)}
+                            onChange={() => setSelectedPendingIds(toggleSelection(selectedPendingIds, job.id))}
+                            className="mt-4 size-4 shrink-0 rounded-xs border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <JobCard job={job} template={getTemplateForJob(job)} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <SortableContext items={pendingJobs.map((j) => j.id)} strategy={verticalListSortingStrategy}>
+                        <div className="space-y-2">
+                          {pendingJobs.map((job) => (
+                            <SortableJobCard key={job.id} job={job} template={getTemplateForJob(job)} />
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                  )
                 ) : (
                   <div className="rounded-sm border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
                     No pending jobs
@@ -790,6 +1232,54 @@ export function GroupPage() {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Description */}
+              <p className="text-sm text-zinc-500">
+                Predefined job templates provided via configuration. Select templates to add them to the queue.
+              </p>
+
+              {/* Selection header for templates */}
+              {isAdmin && filteredTemplates.filter((t) => t.in_config).length > 0 && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {templateSelectionMode && (
+                      <>
+                        <button
+                          onClick={() => setSelectedTemplateIds(new Set(filteredTemplates.filter((t) => t.in_config).map((t) => t.id)))}
+                          className="text-xs text-zinc-400 hover:text-zinc-200"
+                        >
+                          Select all
+                        </button>
+                        <span className="text-zinc-600">|</span>
+                        <button
+                          onClick={() => setSelectedTemplateIds(new Set())}
+                          className="text-xs text-zinc-400 hover:text-zinc-200"
+                        >
+                          Deselect all
+                        </button>
+                        {selectedTemplateIds.size > 0 && (
+                          <span className="text-xs text-zinc-500">
+                            ({selectedTemplateIds.size} selected)
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setTemplateSelectionMode(!templateSelectionMode);
+                      setSelectedTemplateIds(new Set());
+                    }}
+                    className={`rounded-sm px-2 py-1 text-xs ${
+                      templateSelectionMode
+                        ? 'bg-zinc-700 text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {templateSelectionMode ? 'Cancel' : 'Select'}
+                  </button>
+                </div>
+              )}
+
               {/* Label filters */}
               {(availableLabels.length > 0 || unlabeledCount > 0) && (
                 <div className="space-y-2">
@@ -900,9 +1390,22 @@ export function GroupPage() {
                   {filteredTemplates.map((template) => (
                     <div
                       key={template.id}
-                      className="rounded-sm border border-zinc-800 bg-zinc-900 p-4"
+                      className={`rounded-sm border bg-zinc-900 p-4 ${
+                        templateSelectionMode && selectedTemplateIds.has(template.id)
+                          ? 'border-blue-500/50 ring-1 ring-blue-500/20'
+                          : 'border-zinc-800'
+                      }`}
                     >
                       <div className="flex items-start justify-between gap-3">
+                        {/* Checkbox for selection mode */}
+                        {templateSelectionMode && template.in_config && (
+                          <input
+                            type="checkbox"
+                            checked={selectedTemplateIds.has(template.id)}
+                            onChange={() => setSelectedTemplateIds(toggleSelection(selectedTemplateIds, template.id))}
+                            className="mt-1 size-4 shrink-0 rounded-sm border-zinc-600 bg-zinc-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-zinc-900"
+                          />
+                        )}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <h4 className="text-sm font-medium text-zinc-200">
@@ -1084,6 +1587,200 @@ export function GroupPage() {
         preselectedTemplateId={preselectedTemplateId}
         autoRequeueTemplateIds={autoRequeueTemplateIds}
       />
+
+      {/* Bulk Action Bars */}
+      {selectedTemplateIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xs border border-zinc-700 bg-zinc-900 px-4 py-2 shadow-lg">
+          <span className="text-sm text-zinc-300">{selectedTemplateIds.size} selected</span>
+          <div className="h-4 w-px bg-zinc-700" />
+          <button
+            onClick={handleBulkAddToQueue}
+            className="rounded-xs bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+          >
+            Add to Queue
+          </button>
+          <button
+            onClick={handleBulkAddToQueueWithAutoRequeue}
+            className="rounded-xs bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+          >
+            Add with Auto-requeue
+          </button>
+          <button
+            onClick={() => {
+              setSelectedTemplateIds(new Set());
+              setTemplateSelectionMode(false);
+            }}
+            className="text-xs text-zinc-400 hover:text-zinc-200"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {selectedRunningIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xs border border-zinc-700 bg-zinc-900 px-4 py-2 shadow-lg">
+          <span className="text-sm text-zinc-300">{selectedRunningIds.size} selected</span>
+          <div className="h-4 w-px bg-zinc-700" />
+          <button
+            onClick={handleBulkCancel}
+            className="rounded-xs bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleBulkEnableAutoRequeue}
+            className="rounded-xs bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+          >
+            Enable Auto-requeue
+          </button>
+          <button
+            onClick={handleBulkDisableAutoRequeue}
+            className="rounded-xs bg-zinc-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-500"
+          >
+            Disable Auto-requeue
+          </button>
+          <button
+            onClick={() => {
+              setSelectedRunningIds(new Set());
+              setRunningSelectionMode(false);
+            }}
+            className="text-xs text-zinc-400 hover:text-zinc-200"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {selectedPendingIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xs border border-zinc-700 bg-zinc-900 px-4 py-2 shadow-lg">
+          <span className="text-sm text-zinc-300">{selectedPendingIds.size} selected</span>
+          <div className="h-4 w-px bg-zinc-700" />
+          <button
+            onClick={handleBulkPause}
+            className="rounded-xs bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+          >
+            Pause
+          </button>
+          <button
+            onClick={handleBulkUnpause}
+            className="rounded-xs bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+          >
+            Resume
+          </button>
+          <button
+            onClick={handleBulkRemove}
+            className="rounded-xs bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
+          >
+            Remove
+          </button>
+          <button
+            onClick={() => {
+              setSelectedPendingIds(new Set());
+              setPendingSelectionMode(false);
+            }}
+            className="text-xs text-zinc-400 hover:text-zinc-200"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Bulk Action Confirmation Dialog */}
+      {bulkActionConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setBulkActionConfirm(null)} />
+          <div className="relative w-full max-w-lg mx-4 flex max-h-[80vh] flex-col rounded-xs border border-zinc-800 bg-zinc-900 shadow-xl">
+            <div className="shrink-0 border-b border-zinc-800 px-4 py-3">
+              <h2 className="text-lg font-semibold text-zinc-100">{bulkActionConfirm.title}</h2>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <p className="text-sm text-zinc-300">{bulkActionConfirm.message}</p>
+              {bulkActionConfirm.warning && (
+                <div className="rounded-xs bg-amber-500/10 border border-amber-500/20 p-3">
+                  <div className="flex items-start gap-2">
+                    <svg className="size-5 shrink-0 text-amber-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <p className="text-sm text-amber-400">{bulkActionConfirm.warning}</p>
+                  </div>
+                </div>
+              )}
+              {bulkActionConfirm.items && bulkActionConfirm.items.length > 0 && (
+                <div className="rounded-xs border border-zinc-700 bg-zinc-800/50">
+                  <ul className="divide-y divide-zinc-700/50">
+                    {bulkActionConfirm.items.map((item, index) => {
+                      const willBeSkipped = bulkActionConfirm.showDuplicateCheckbox && item.warning && !confirmDuplicates;
+                      return (
+                        <li
+                          key={index}
+                          className={`flex items-center justify-between px-3 py-2 text-sm ${willBeSkipped ? 'opacity-50' : ''}`}
+                        >
+                          <span className={`${item.warning ? 'text-amber-300' : 'text-zinc-300'} ${willBeSkipped ? 'line-through' : ''}`}>
+                            {item.name}
+                          </span>
+                          {item.warning && (
+                            <span className="flex items-center gap-1 text-xs text-amber-400">
+                              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                              {willBeSkipped ? 'will be skipped' : 'has auto-requeue'}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+              {bulkActionConfirm.showDuplicateCheckbox && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={confirmDuplicates}
+                    onChange={(e) => setConfirmDuplicates(e.target.checked)}
+                    className="size-4 rounded-xs border-amber-600 bg-zinc-800 text-amber-500 focus:ring-amber-500 focus:ring-offset-zinc-900"
+                  />
+                  <span className="text-sm text-zinc-300">Include templates with existing auto-requeue jobs</span>
+                </label>
+              )}
+            </div>
+            <div className="shrink-0 flex justify-end gap-2 border-t border-zinc-800 px-4 py-3">
+              <button
+                onClick={() => {
+                  setBulkActionConfirm(null);
+                  setConfirmDuplicates(false);
+                }}
+                className="rounded-xs px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => bulkActionConfirm.onConfirm(confirmDuplicates)}
+                className={`rounded-xs px-4 py-2 text-sm font-medium text-white ${bulkActionConfirm.buttonClass}`}
+              >
+                {bulkActionConfirm.buttonLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Progress Indicator */}
+      {bulkProgress && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="rounded-xs border border-zinc-700 bg-zinc-900 p-6 shadow-lg">
+            <div className="flex items-center gap-3">
+              <svg className="size-5 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span className="text-sm text-zinc-300">
+                {bulkProgress.action}: {bulkProgress.current} of {bulkProgress.total}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
