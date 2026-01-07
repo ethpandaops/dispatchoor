@@ -37,6 +37,8 @@ type Store interface {
 	ListJobsByGroup(ctx context.Context, groupID string, statuses ...JobStatus) ([]*Job, error)
 	ListJobsByStatus(ctx context.Context, statuses ...JobStatus) ([]*Job, error)
 	ListJobHistory(ctx context.Context, opts HistoryQueryOpts) (*HistoryResult, error)
+	GetHistoryStats(ctx context.Context, opts HistoryStatsOpts) (*HistoryStatsResult, error)
+	GetHistoryTimeBounds(ctx context.Context, groupID string) (oldest, newest *time.Time, err error)
 	UpdateJob(ctx context.Context, job *Job) error
 	DeleteJob(ctx context.Context, id string) error
 	DeleteOldJobs(ctx context.Context, olderThan time.Time) (int64, error)
@@ -264,4 +266,41 @@ type HistoryResult struct {
 	HasMore    bool
 	NextCursor *time.Time // completed_at of the last job
 	TotalCount int
+}
+
+// HistoryStatsOpts contains options for querying history statistics.
+type HistoryStatsOpts struct {
+	GroupID string
+	Start   time.Time
+	End     time.Time
+	Buckets int // number of time buckets to return
+}
+
+// HistoryStatsBucket contains aggregated job counts for a time bucket.
+type HistoryStatsBucket struct {
+	Timestamp time.Time `json:"timestamp"`
+	Completed int       `json:"completed"`
+	Failed    int       `json:"failed"`
+	Cancelled int       `json:"cancelled"`
+}
+
+// HistoryStatsRange contains metadata about the time range.
+type HistoryStatsRange struct {
+	Start          time.Time     `json:"start"`
+	End            time.Time     `json:"end"`
+	BucketDuration time.Duration `json:"bucket_duration"`
+}
+
+// HistoryStatsTotals contains total counts across all buckets.
+type HistoryStatsTotals struct {
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+	Cancelled int `json:"cancelled"`
+}
+
+// HistoryStatsResult contains aggregated history statistics.
+type HistoryStatsResult struct {
+	Buckets []*HistoryStatsBucket `json:"buckets"`
+	Range   HistoryStatsRange     `json:"range"`
+	Totals  HistoryStatsTotals    `json:"totals"`
 }

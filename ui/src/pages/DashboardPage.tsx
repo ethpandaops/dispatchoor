@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useGroups, useSystemStatus } from '../hooks/useGroups';
+import { MiniHistoryChart } from '../components/charts/MiniHistoryChart';
 import type { GroupWithStats } from '../types';
 
 function GroupCard({ group }: { group: GroupWithStats }) {
@@ -39,6 +40,11 @@ function GroupCard({ group }: { group: GroupWithStats }) {
           <p className="text-2xl font-bold text-zinc-100">{group.idle_runners}</p>
           <p className="text-xs text-zinc-500">Idle runners</p>
         </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="mb-1 text-xs text-zinc-500">Last 24 hours</p>
+        <MiniHistoryChart groupId={group.id} />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-1">

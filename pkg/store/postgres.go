@@ -907,6 +907,127 @@ func (s *PostgresStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpt
 	return result, nil
 }
 
+// GetHistoryTimeBounds returns the oldest and newest completed_at times for history jobs.
+func (s *PostgresStore) GetHistoryTimeBounds(ctx context.Context, groupID string) (oldest, newest *time.Time, err error) {
+	query := `
+		SELECT MIN(completed_at), MAX(completed_at)
+		FROM jobs
+		WHERE group_id = $1
+		AND status IN ('completed', 'failed', 'cancelled')
+		AND completed_at IS NOT NULL
+	`
+
+	var minTime, maxTime sql.NullTime
+
+	err = s.db.QueryRowContext(ctx, query, groupID).Scan(&minTime, &maxTime)
+	if err != nil {
+		return nil, nil, fmt.Errorf("querying history time bounds: %w", err)
+	}
+
+	if minTime.Valid {
+		oldest = &minTime.Time
+	}
+
+	if maxTime.Valid {
+		newest = &maxTime.Time
+	}
+
+	return oldest, newest, nil
+}
+
+// GetHistoryStats retrieves aggregated job statistics for a time range.
+func (s *PostgresStore) GetHistoryStats(ctx context.Context, opts HistoryStatsOpts) (*HistoryStatsResult, error) {
+	// Calculate bucket duration.
+	totalDuration := opts.End.Sub(opts.Start)
+	bucketDuration := totalDuration / time.Duration(opts.Buckets)
+
+	// Query aggregated counts grouped by bucket.
+	// We use PostgreSQL's EXTRACT EPOCH to calculate bucket indexes.
+	query := `
+		SELECT
+			FLOOR((EXTRACT(EPOCH FROM completed_at) - EXTRACT(EPOCH FROM $1::timestamptz)) / $2)::INTEGER AS bucket_idx,
+			SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
+			SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+			SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled
+		FROM jobs
+		WHERE group_id = $3
+		AND completed_at >= $4
+		AND completed_at < $5
+		AND status IN ('completed', 'failed', 'cancelled')
+		GROUP BY bucket_idx
+		ORDER BY bucket_idx
+	`
+
+	bucketSeconds := int64(bucketDuration.Seconds())
+	if bucketSeconds < 1 {
+		bucketSeconds = 1
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, opts.Start, bucketSeconds, opts.GroupID, opts.Start, opts.End)
+	if err != nil {
+		return nil, fmt.Errorf("querying history stats: %w", err)
+	}
+	defer rows.Close()
+
+	// Create a map of bucket index to counts.
+	bucketCounts := make(map[int]*HistoryStatsBucket, opts.Buckets)
+
+	for rows.Next() {
+		var bucketIdx int
+
+		var completed, failed, cancelled int
+
+		if err := rows.Scan(&bucketIdx, &completed, &failed, &cancelled); err != nil {
+			return nil, fmt.Errorf("scanning history stats row: %w", err)
+		}
+
+		if bucketIdx >= 0 && bucketIdx < opts.Buckets {
+			bucketCounts[bucketIdx] = &HistoryStatsBucket{
+				Completed: completed,
+				Failed:    failed,
+				Cancelled: cancelled,
+			}
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating history stats rows: %w", err)
+	}
+
+	// Build the full buckets slice, filling empty buckets with zeros.
+	buckets := make([]*HistoryStatsBucket, opts.Buckets)
+	totals := HistoryStatsTotals{}
+
+	for i := range opts.Buckets {
+		bucketTime := opts.Start.Add(time.Duration(i) * bucketDuration)
+
+		if existing, ok := bucketCounts[i]; ok {
+			existing.Timestamp = bucketTime
+			buckets[i] = existing
+			totals.Completed += existing.Completed
+			totals.Failed += existing.Failed
+			totals.Cancelled += existing.Cancelled
+		} else {
+			buckets[i] = &HistoryStatsBucket{
+				Timestamp: bucketTime,
+				Completed: 0,
+				Failed:    0,
+				Cancelled: 0,
+			}
+		}
+	}
+
+	return &HistoryStatsResult{
+		Buckets: buckets,
+		Range: HistoryStatsRange{
+			Start:          opts.Start,
+			End:            opts.End,
+			BucketDuration: bucketDuration,
+		},
+		Totals: totals,
+	}, nil
+}
+
 // ReorderJobs updates job positions based on the provided order.
 func (s *PostgresStore) ReorderJobs(ctx context.Context, groupID string, jobIDs []string) error {
 	tx, err := s.db.BeginTx(ctx, nil)

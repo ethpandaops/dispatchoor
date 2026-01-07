@@ -182,6 +182,7 @@ func (s *server) setupRouter() {
 			// Queue (read-only).
 			r.Get("/groups/{id}/queue", s.handleGetQueue)
 			r.Get("/groups/{id}/history", s.handleGetHistory)
+			r.Get("/groups/{id}/history/stats", s.handleGetHistoryStats)
 
 			// Jobs (read-only).
 			r.Get("/jobs/{id}", s.handleGetJob)
@@ -967,6 +968,147 @@ func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 
 	if resp.Jobs == nil {
 		resp.Jobs = []*store.Job{}
+	}
+
+	s.writeJSON(w, http.StatusOK, resp)
+}
+
+// historyStatsResponse wraps the aggregated history statistics.
+type historyStatsResponse struct {
+	Buckets []historyStatsBucket `json:"buckets"`
+	Range   historyStatsRange    `json:"range"`
+	Totals  historyStatsTotals   `json:"totals"`
+}
+
+type historyStatsBucket struct {
+	Timestamp string `json:"timestamp"`
+	Completed int    `json:"completed"`
+	Failed    int    `json:"failed"`
+	Cancelled int    `json:"cancelled"`
+}
+
+type historyStatsRange struct {
+	Start          string `json:"start"`
+	End            string `json:"end"`
+	BucketDuration string `json:"bucket_duration"`
+}
+
+type historyStatsTotals struct {
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+	Cancelled int `json:"cancelled"`
+}
+
+func (s *server) handleGetHistoryStats(w http.ResponseWriter, r *http.Request) {
+	groupID := chi.URLParam(r, "id")
+
+	// Parse time range parameter.
+	rangeStr := r.URL.Query().Get("range")
+	if rangeStr == "" {
+		rangeStr = "auto"
+	}
+
+	now := time.Now()
+	var start, end time.Time
+	var buckets int
+
+	end = now
+
+	switch rangeStr {
+	case "1h":
+		start = now.Add(-1 * time.Hour)
+		buckets = 12 // 5 minute intervals
+	case "6h":
+		start = now.Add(-6 * time.Hour)
+		buckets = 24 // 15 minute intervals
+	case "24h":
+		start = now.Add(-24 * time.Hour)
+		buckets = 24 // 1 hour intervals
+	case "7d":
+		start = now.Add(-7 * 24 * time.Hour)
+		buckets = 28 // 6 hour intervals
+	case "30d":
+		start = now.Add(-30 * 24 * time.Hour)
+		buckets = 30 // 1 day intervals
+	case "auto":
+		// For auto mode, show all jobs from oldest to now.
+		oldestTime, _, err := s.store.GetHistoryTimeBounds(r.Context(), groupID)
+		if err != nil {
+			s.log.WithError(err).Error("Failed to get history time bounds")
+			s.writeError(w, http.StatusInternalServerError, "Failed to get history stats")
+
+			return
+		}
+
+		if oldestTime == nil {
+			// No history data, return empty buckets for 24h.
+			start = now.Add(-24 * time.Hour)
+			buckets = 24
+		} else {
+			// Set start to oldest job time (with small buffer).
+			start = oldestTime.Add(-1 * time.Minute)
+
+			// Calculate appropriate number of buckets based on span.
+			span := now.Sub(start)
+
+			if span > 30*24*time.Hour {
+				buckets = 30 // ~1 day per bucket
+			} else if span > 7*24*time.Hour {
+				buckets = 28 // ~6 hours per bucket
+			} else if span > 24*time.Hour {
+				buckets = 24 // ~1 hour per bucket
+			} else if span > 6*time.Hour {
+				buckets = 24 // ~15 min per bucket
+			} else if span > 1*time.Hour {
+				buckets = 12 // ~5 min per bucket
+			} else {
+				buckets = 12 // Small intervals
+			}
+		}
+	default:
+		s.writeError(w, http.StatusBadRequest, "Invalid range parameter")
+
+		return
+	}
+
+	opts := store.HistoryStatsOpts{
+		GroupID: groupID,
+		Start:   start,
+		End:     end,
+		Buckets: buckets,
+	}
+
+	result, err := s.store.GetHistoryStats(r.Context(), opts)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get history stats")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get history stats")
+
+		return
+	}
+
+	// Convert to response format with string timestamps.
+	respBuckets := make([]historyStatsBucket, len(result.Buckets))
+	for i, bucket := range result.Buckets {
+		respBuckets[i] = historyStatsBucket{
+			Timestamp: bucket.Timestamp.Format(time.RFC3339),
+			Completed: bucket.Completed,
+			Failed:    bucket.Failed,
+			Cancelled: bucket.Cancelled,
+		}
+	}
+
+	resp := historyStatsResponse{
+		Buckets: respBuckets,
+		Range: historyStatsRange{
+			Start:          result.Range.Start.Format(time.RFC3339),
+			End:            result.Range.End.Format(time.RFC3339),
+			BucketDuration: result.Range.BucketDuration.String(),
+		},
+		Totals: historyStatsTotals{
+			Completed: result.Totals.Completed,
+			Failed:    result.Totals.Failed,
+			Cancelled: result.Totals.Cancelled,
+		},
 	}
 
 	s.writeJSON(w, http.StatusOK, resp)

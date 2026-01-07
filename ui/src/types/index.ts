@@ -73,6 +73,33 @@ export interface HistoryResponse {
   total_count: number;
 }
 
+export interface HistoryStatsBucket {
+  timestamp: string;
+  completed: number;
+  failed: number;
+  cancelled: number;
+}
+
+export interface HistoryStatsRange {
+  start: string;
+  end: string;
+  bucket_duration: string;
+}
+
+export interface HistoryStatsTotals {
+  completed: number;
+  failed: number;
+  cancelled: number;
+}
+
+export interface HistoryStatsResponse {
+  buckets: HistoryStatsBucket[];
+  range: HistoryStatsRange;
+  totals: HistoryStatsTotals;
+}
+
+export type HistoryStatsTimeRange = '1h' | '6h' | '24h' | '7d' | '30d' | 'auto';
+
 export interface Runner {
   id: number;
   name: string;

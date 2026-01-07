@@ -8,6 +8,8 @@ import type {
   ApiError,
   User,
   HistoryResponse,
+  HistoryStatsResponse,
+  HistoryStatsTimeRange,
 } from '../types';
 import { getConfig } from '../config';
 
@@ -157,6 +159,15 @@ class ApiClient {
     }
 
     return this.request<HistoryResponse>(`/groups/${groupId}/history?${params.toString()}`);
+  }
+
+  async getHistoryStats(
+    groupId: string,
+    range: HistoryStatsTimeRange = 'auto'
+  ): Promise<HistoryStatsResponse> {
+    const params = new URLSearchParams();
+    params.set('range', range);
+    return this.request<HistoryStatsResponse>(`/groups/${groupId}/history/stats?${params.toString()}`);
   }
 
   async getJob(id: string): Promise<Job> {

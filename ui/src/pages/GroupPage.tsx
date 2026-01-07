@@ -25,6 +25,7 @@ import { useAuthStore } from '../stores/authStore';
 import { JobCard } from '../components/jobs/JobCard';
 import { AddJobDialog } from '../components/jobs/AddJobDialog';
 import { LabelsDisplay } from '../components/common/LabelBadge';
+import { HistoryChart } from '../components/charts/HistoryChart';
 import type { Job, JobTemplate, Runner } from '../types';
 
 function SortableJobCard({ job, template }: { job: Job; template?: JobTemplate }) {
@@ -865,25 +866,8 @@ export function GroupPage() {
         )}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <div className="rounded-sm border border-zinc-800 bg-zinc-900 p-4">
-          <div className="text-2xl font-bold text-green-400">{activeJobs.length}</div>
-          <div className="text-sm text-zinc-400">Running</div>
-        </div>
-        <div className="rounded-sm border border-zinc-800 bg-zinc-900 p-4">
-          <div className="text-2xl font-bold text-amber-400">{pendingJobs.length}</div>
-          <div className="text-sm text-zinc-400">Queued</div>
-        </div>
-        <div className="rounded-sm border border-zinc-800 bg-zinc-900 p-4">
-          <div className="text-2xl font-bold text-blue-400">{busyRunners.length}</div>
-          <div className="text-sm text-zinc-400">Busy Runners</div>
-        </div>
-        <div className="rounded-sm border border-zinc-800 bg-zinc-900 p-4">
-          <div className="text-2xl font-bold text-zinc-100">{idleRunners.length}</div>
-          <div className="text-sm text-zinc-400">Idle Runners</div>
-        </div>
-      </div>
+      {/* History Chart */}
+      <HistoryChart groupId={id!} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Queue/History Panel */}
