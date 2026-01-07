@@ -63,6 +63,12 @@ export interface Job {
   updated_at: string;
 }
 
+export interface HistoryResponse {
+  jobs: Job[];
+  has_more: boolean;
+  next_cursor?: string;
+}
+
 export interface Runner {
   id: number;
   name: string;

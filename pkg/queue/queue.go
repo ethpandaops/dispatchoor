@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethpandaops/dispatchoor/pkg/config"
 	"github.com/ethpandaops/dispatchoor/pkg/store"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -37,6 +38,7 @@ type Service interface {
 	ListPending(ctx context.Context, groupID string) ([]*store.Job, error)
 	ListByStatus(ctx context.Context, groupID string, statuses ...store.JobStatus) ([]*store.Job, error)
 	ListHistory(ctx context.Context, groupID string, limit int) ([]*store.Job, error)
+	ListHistoryPaginated(ctx context.Context, groupID string, limit int, before *time.Time) (*store.HistoryResult, error)
 
 	// State transitions.
 	MarkTriggered(ctx context.Context, jobID string, runID int64, runURL string) error
@@ -63,6 +65,7 @@ type Service interface {
 // service implements Service.
 type service struct {
 	log               logrus.FieldLogger
+	cfg               *config.Config
 	store             store.Store
 	mu                sync.Mutex
 	jobChangeCallback JobChangeCallback
@@ -72,9 +75,10 @@ type service struct {
 var _ Service = (*service)(nil)
 
 // NewService creates a new queue service.
-func NewService(log logrus.FieldLogger, st store.Store) Service {
+func NewService(log logrus.FieldLogger, cfg *config.Config, st store.Store) Service {
 	return &service{
 		log:   log.WithField("component", "queue"),
+		cfg:   cfg,
 		store: st,
 	}
 }
@@ -83,7 +87,44 @@ func NewService(log logrus.FieldLogger, st store.Store) Service {
 func (s *service) Start(ctx context.Context) error {
 	s.log.Info("Starting queue service")
 
+	// Start job cleanup goroutine if retention is enabled.
+	if s.cfg.History.RetentionDays > 0 {
+		go s.cleanupOldJobs(ctx)
+	}
+
 	return nil
+}
+
+// cleanupOldJobs periodically removes old completed/failed/cancelled jobs.
+func (s *service) cleanupOldJobs(ctx context.Context) {
+	s.log.WithFields(logrus.Fields{
+		"retention_days":   s.cfg.History.RetentionDays,
+		"cleanup_interval": s.cfg.History.CleanupInterval,
+	}).Info("Starting job history cleanup goroutine")
+
+	ticker := time.NewTicker(s.cfg.History.CleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.log.Info("Stopping job history cleanup goroutine")
+
+			return
+		case <-ticker.C:
+			cutoff := time.Now().AddDate(0, 0, -s.cfg.History.RetentionDays)
+
+			count, err := s.store.DeleteOldJobs(ctx, cutoff)
+			if err != nil {
+				s.log.WithError(err).Error("Failed to cleanup old jobs")
+			} else if count > 0 {
+				s.log.WithFields(logrus.Fields{
+					"deleted_count":  count,
+					"retention_days": s.cfg.History.RetentionDays,
+				}).Info("Cleaned up old jobs")
+			}
+		}
+	}
 }
 
 // Stop shuts down the queue service.
@@ -285,21 +326,29 @@ func (s *service) ListByStatus(
 
 // ListHistory returns completed/failed/cancelled jobs for a group.
 func (s *service) ListHistory(ctx context.Context, groupID string, limit int) ([]*store.Job, error) {
-	jobs, err := s.store.ListJobsByGroup(
-		ctx, groupID,
-		store.JobStatusCompleted, store.JobStatusFailed, store.JobStatusCancelled,
-	)
+	result, err := s.store.ListJobHistory(ctx, store.HistoryQueryOpts{
+		GroupID: groupID,
+		Limit:   limit,
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Sorting by completed_at desc is done in the SQL query. Apply limit here.
-	// TODO: Move limit to the SQL query for better performance.
-	if limit > 0 && len(jobs) > limit {
-		jobs = jobs[:limit]
-	}
+	return result.Jobs, nil
+}
 
-	return jobs, nil
+// ListHistoryPaginated returns paginated history with cursor support.
+func (s *service) ListHistoryPaginated(
+	ctx context.Context,
+	groupID string,
+	limit int,
+	before *time.Time,
+) (*store.HistoryResult, error) {
+	return s.store.ListJobHistory(ctx, store.HistoryQueryOpts{
+		GroupID: groupID,
+		Limit:   limit,
+		Before:  before,
+	})
 }
 
 // MarkTriggered marks a job as triggered.

@@ -99,7 +99,7 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	defer poller.Stop()
 
 	// Create queue service.
-	queueSvc := queue.NewService(log, st)
+	queueSvc := queue.NewService(log, cfg, st)
 
 	if err := queueSvc.Start(ctx); err != nil {
 		return err

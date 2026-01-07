@@ -1,0 +1,824 @@
+# ============================================
+# Besu combinations
+# ============================================
+- id: sync-test-hoodi-besu-lighthouse
+  name: Sync Test (Hoodi) - besu/lighthouse
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"besu"'
+    cl-client: '"lighthouse"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lighthouse": "sigp/lighthouse:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "besu": "hyperledger/besu:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-besu-teku
+  name: Sync Test (Hoodi) - besu/teku
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"besu"'
+    cl-client: '"teku"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "teku": "consensys/teku:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "besu": "hyperledger/besu:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-besu-prysm
+  name: Sync Test (Hoodi) - besu/prysm
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"besu"'
+    cl-client: '"prysm"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "prysm": "gcr.io/offchainlabs/prysm/beacon-chain:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "besu": "hyperledger/besu:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-besu-nimbus
+  name: Sync Test (Hoodi) - besu/nimbus
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"besu"'
+    cl-client: '"nimbus"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "nimbus": "statusim/nimbus-eth2:multiarch-latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "besu": "hyperledger/besu:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-besu-lodestar
+  name: Sync Test (Hoodi) - besu/lodestar
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"besu"'
+    cl-client: '"lodestar"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lodestar": "chainsafe/lodestar:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "besu": "hyperledger/besu:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-besu-grandine
+  name: Sync Test (Hoodi) - besu/grandine
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"besu"'
+    cl-client: '"grandine"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "grandine": "sifrai/grandine:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "besu": "hyperledger/besu:latest"
+          }
+        }
+      }
+
+# ============================================
+# Geth combinations
+# ============================================
+- id: sync-test-hoodi-geth-lighthouse
+  name: Sync Test (Hoodi) - geth/lighthouse
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"geth"'
+    cl-client: '"lighthouse"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lighthouse": "sigp/lighthouse:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "geth": "ethereum/client-go:stable"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-geth-teku
+  name: Sync Test (Hoodi) - geth/teku
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"geth"'
+    cl-client: '"teku"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "teku": "consensys/teku:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "geth": "ethereum/client-go:stable"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-geth-prysm
+  name: Sync Test (Hoodi) - geth/prysm
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"geth"'
+    cl-client: '"prysm"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "prysm": "gcr.io/offchainlabs/prysm/beacon-chain:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "geth": "ethereum/client-go:stable"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-geth-nimbus
+  name: Sync Test (Hoodi) - geth/nimbus
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"geth"'
+    cl-client: '"nimbus"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "nimbus": "statusim/nimbus-eth2:multiarch-latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "geth": "ethereum/client-go:stable"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-geth-lodestar
+  name: Sync Test (Hoodi) - geth/lodestar
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"geth"'
+    cl-client: '"lodestar"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lodestar": "chainsafe/lodestar:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "geth": "ethereum/client-go:stable"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-geth-grandine
+  name: Sync Test (Hoodi) - geth/grandine
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"geth"'
+    cl-client: '"grandine"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "grandine": "sifrai/grandine:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "geth": "ethereum/client-go:stable"
+          }
+        }
+      }
+
+# ============================================
+# Erigon combinations
+# ============================================
+- id: sync-test-hoodi-erigon-lighthouse
+  name: Sync Test (Hoodi) - erigon/lighthouse
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"erigon"'
+    cl-client: '"lighthouse"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lighthouse": "sigp/lighthouse:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "erigon": "erigontech/erigon:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-erigon-teku
+  name: Sync Test (Hoodi) - erigon/teku
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"erigon"'
+    cl-client: '"teku"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "teku": "consensys/teku:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "erigon": "erigontech/erigon:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-erigon-prysm
+  name: Sync Test (Hoodi) - erigon/prysm
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"erigon"'
+    cl-client: '"prysm"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "prysm": "gcr.io/offchainlabs/prysm/beacon-chain:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "erigon": "erigontech/erigon:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-erigon-nimbus
+  name: Sync Test (Hoodi) - erigon/nimbus
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"erigon"'
+    cl-client: '"nimbus"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "nimbus": "statusim/nimbus-eth2:multiarch-latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "erigon": "erigontech/erigon:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-erigon-lodestar
+  name: Sync Test (Hoodi) - erigon/lodestar
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"erigon"'
+    cl-client: '"lodestar"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lodestar": "chainsafe/lodestar:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "erigon": "erigontech/erigon:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-erigon-grandine
+  name: Sync Test (Hoodi) - erigon/grandine
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"erigon"'
+    cl-client: '"grandine"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "grandine": "sifrai/grandine:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "erigon": "erigontech/erigon:latest"
+          }
+        }
+      }
+
+# ============================================
+# Nethermind combinations
+# ============================================
+- id: sync-test-hoodi-nethermind-lighthouse
+  name: Sync Test (Hoodi) - nethermind/lighthouse
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"nethermind"'
+    cl-client: '"lighthouse"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lighthouse": "sigp/lighthouse:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "nethermind": "nethermind/nethermind:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-nethermind-teku
+  name: Sync Test (Hoodi) - nethermind/teku
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"nethermind"'
+    cl-client: '"teku"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "teku": "consensys/teku:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "nethermind": "nethermind/nethermind:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-nethermind-prysm
+  name: Sync Test (Hoodi) - nethermind/prysm
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"nethermind"'
+    cl-client: '"prysm"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "prysm": "gcr.io/offchainlabs/prysm/beacon-chain:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "nethermind": "nethermind/nethermind:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-nethermind-nimbus
+  name: Sync Test (Hoodi) - nethermind/nimbus
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"nethermind"'
+    cl-client: '"nimbus"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "nimbus": "statusim/nimbus-eth2:multiarch-latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "nethermind": "nethermind/nethermind:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-nethermind-lodestar
+  name: Sync Test (Hoodi) - nethermind/lodestar
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"nethermind"'
+    cl-client: '"lodestar"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lodestar": "chainsafe/lodestar:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "nethermind": "nethermind/nethermind:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-nethermind-grandine
+  name: Sync Test (Hoodi) - nethermind/grandine
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"nethermind"'
+    cl-client: '"grandine"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "grandine": "sifrai/grandine:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "nethermind": "nethermind/nethermind:latest"
+          }
+        }
+      }
+
+# ============================================
+# Reth combinations
+# ============================================
+- id: sync-test-hoodi-reth-lighthouse
+  name: Sync Test (Hoodi) - reth/lighthouse
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"reth"'
+    cl-client: '"lighthouse"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lighthouse": "sigp/lighthouse:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "reth": "ghcr.io/paradigmxyz/reth:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-reth-teku
+  name: Sync Test (Hoodi) - reth/teku
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"reth"'
+    cl-client: '"teku"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "teku": "consensys/teku:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "reth": "ghcr.io/paradigmxyz/reth:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-reth-prysm
+  name: Sync Test (Hoodi) - reth/prysm
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"reth"'
+    cl-client: '"prysm"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "prysm": "gcr.io/offchainlabs/prysm/beacon-chain:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "reth": "ghcr.io/paradigmxyz/reth:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-reth-nimbus
+  name: Sync Test (Hoodi) - reth/nimbus
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"reth"'
+    cl-client: '"nimbus"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "nimbus": "statusim/nimbus-eth2:multiarch-latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "reth": "ghcr.io/paradigmxyz/reth:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-reth-lodestar
+  name: Sync Test (Hoodi) - reth/lodestar
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"reth"'
+    cl-client: '"lodestar"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "lodestar": "chainsafe/lodestar:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "reth": "ghcr.io/paradigmxyz/reth:latest"
+          }
+        }
+      }
+
+- id: sync-test-hoodi-reth-grandine
+  name: Sync Test (Hoodi) - reth/grandine
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  inputs:
+    run-timeout-minutes: "1380"
+    el-client: '"reth"'
+    cl-client: '"grandine"'
+    config: >-
+      {
+        "network": "hoodi",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "images": {
+            "grandine": "sifrai/grandine:stable"
+          }
+        },
+        "execution": {
+          "images": {
+            "reth": "ghcr.io/paradigmxyz/reth:latest"
+          }
+        }
+      }

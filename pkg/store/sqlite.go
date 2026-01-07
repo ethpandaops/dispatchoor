@@ -160,6 +160,8 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		`ALTER TABLE jobs ADD COLUMN auto_requeue INTEGER DEFAULT 0`,
 		`ALTER TABLE jobs ADD COLUMN requeue_limit INTEGER`,
 		`ALTER TABLE jobs ADD COLUMN requeue_count INTEGER DEFAULT 0`,
+		// Index for efficient history cleanup and pagination.
+		`CREATE INDEX IF NOT EXISTS idx_jobs_completed_at ON jobs(completed_at)`,
 	}
 
 	for _, migration := range migrations {
@@ -675,6 +677,72 @@ func (s *SQLiteStore) DeleteJob(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+// DeleteOldJobs deletes completed, failed, or cancelled jobs older than the given time.
+func (s *SQLiteStore) DeleteOldJobs(ctx context.Context, olderThan time.Time) (int64, error) {
+	result, err := s.db.ExecContext(ctx, `
+		DELETE FROM jobs
+		WHERE status IN ('completed', 'failed', 'cancelled')
+		AND completed_at < ?
+	`, olderThan)
+	if err != nil {
+		return 0, fmt.Errorf("deleting old jobs: %w", err)
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("getting rows affected: %w", err)
+	}
+
+	return count, nil
+}
+
+// ListJobHistory retrieves paginated job history with cursor-based pagination.
+func (s *SQLiteStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpts) (*HistoryResult, error) {
+	query := `
+		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
+			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
+		FROM jobs
+		WHERE group_id = ?
+		AND status IN ('completed', 'failed', 'cancelled')
+	`
+	args := []any{opts.GroupID}
+
+	if opts.Before != nil {
+		query += " AND completed_at < ?"
+		args = append(args, *opts.Before)
+	}
+
+	query += " ORDER BY completed_at DESC"
+
+	// Fetch one extra to check if more exist.
+	fetchLimit := opts.Limit + 1
+	query += fmt.Sprintf(" LIMIT %d", fetchLimit)
+
+	jobs, err := s.queryJobs(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &HistoryResult{
+		Jobs:    jobs,
+		HasMore: false,
+	}
+
+	// Check if we got more than requested (indicates more data exists).
+	if len(jobs) > opts.Limit {
+		result.HasMore = true
+		result.Jobs = jobs[:opts.Limit]
+	}
+
+	// Set next cursor to the completed_at of the last job.
+	if len(result.Jobs) > 0 {
+		lastJob := result.Jobs[len(result.Jobs)-1]
+		result.NextCursor = lastJob.CompletedAt
+	}
+
+	return result, nil
 }
 
 // ReorderJobs updates job positions based on the provided order.

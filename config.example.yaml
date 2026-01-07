@@ -50,6 +50,11 @@ auth:
     role_mapping:
       ethpandaops: admin
 
+# History retention settings for job cleanup
+history:
+  retention_days: 30   # Days to keep completed/failed/cancelled jobs (default: 30, -1 to disable)
+  cleanup_interval: 1h # How often to run cleanup (default: 1h)
+
 # Groups define runner pools and their dispatchable workflow templates
 groups:
   github:

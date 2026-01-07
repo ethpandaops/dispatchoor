@@ -86,6 +86,12 @@ export function GroupPage() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [preselectedTemplateId, setPreselectedTemplateId] = useState<string | undefined>();
 
+  // History pagination state
+  const [historyJobs, setHistoryJobs] = useState<Job[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | undefined>();
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   // Get active tab from URL, default to 'queue'
   const tabParam = searchParams.get('tab');
   const activeTab: TabType = validTabs.includes(tabParam as TabType) ? (tabParam as TabType) : 'queue';
@@ -165,11 +171,40 @@ export function GroupPage() {
     enabled: !!id,
   });
 
-  const { data: history = [] } = useQuery({
+  const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['history', id],
     queryFn: () => api.getHistory(id!),
     enabled: !!id && activeTab === 'history',
   });
+
+  // Update history state when data changes or tab becomes active
+  useEffect(() => {
+    if (activeTab === 'history' && historyData && !historyCursor) {
+      setHistoryJobs(historyData.jobs);
+      setHasMoreHistory(historyData.has_more);
+    }
+  }, [historyData, historyCursor, activeTab]);
+
+  // Reset history pagination when switching groups
+  useEffect(() => {
+    setHistoryCursor(undefined);
+    setHistoryJobs([]);
+    setHasMoreHistory(false);
+  }, [id]);
+
+  const loadMoreHistory = async () => {
+    if (!historyData?.next_cursor || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    try {
+      const moreData = await api.getHistory(id!, 50, historyData.next_cursor);
+      setHistoryJobs(prev => [...prev, ...moreData.jobs]);
+      setHasMoreHistory(moreData.has_more);
+      setHistoryCursor(moreData.next_cursor);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const { data: runners = [] } = useQuery({
     queryKey: ['runners', id],
@@ -189,7 +224,7 @@ export function GroupPage() {
   // Group history jobs by template for grouped view
   const groupedHistory = useMemo(() => {
     const groups = new Map<string, { template: JobTemplate | undefined; jobs: Job[] }>();
-    for (const job of history) {
+    for (const job of historyJobs) {
       const template = getTemplateForJob(job);
       const key = job.template_id;
       if (!groups.has(key)) {
@@ -198,7 +233,7 @@ export function GroupPage() {
       groups.get(key)!.jobs.push(job);
     }
     return Array.from(groups.values());
-  }, [history, templates]);
+  }, [historyJobs, templates]);
 
   const pendingJobs = queue.filter((j) => j.status === 'pending').sort((a, b) => a.position - b.position);
   const activeJobs = queue.filter((j) => j.status === 'triggered' || j.status === 'running');
@@ -398,60 +433,75 @@ export function GroupPage() {
                 </button>
               </div>
 
-              {history.length > 0 ? (
-                historyViewMode === 'grouped' ? (
-                  <div className="space-y-6">
-                    {groupedHistory.map(({ template, jobs }) => {
-                      const templateId = template?.id || jobs[0].template_id;
-                      const isExpanded = expandedGroups.has(templateId);
-                      const visibleJobs = isExpanded ? jobs : [jobs[0]];
-                      const hiddenCount = jobs.length - 1;
+              {historyLoading && historyJobs.length === 0 ? (
+                <div className="text-zinc-500">Loading...</div>
+              ) : historyJobs.length > 0 ? (
+                <>
+                  {historyViewMode === 'grouped' ? (
+                    <div className="space-y-6">
+                      {groupedHistory.map(({ template, jobs }) => {
+                        const templateId = template?.id || jobs[0].template_id;
+                        const isExpanded = expandedGroups.has(templateId);
+                        const visibleJobs = isExpanded ? jobs : [jobs[0]];
+                        const hiddenCount = jobs.length - 1;
 
-                      return (
-                        <div key={templateId}>
-                          <div className="mb-3 flex items-center justify-between">
-                            <h3 className="text-sm font-medium text-zinc-300">
-                              {template?.name || templateId} ({jobs.length})
-                            </h3>
-                            {hiddenCount > 0 && (
-                              <button
-                                onClick={() => toggleGroupExpanded(templateId)}
-                                className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
-                              >
-                                {isExpanded ? (
-                                  <>
-                                    <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                                    </svg>
-                                    Collapse
-                                  </>
-                                ) : (
-                                  <>
-                                    <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                    </svg>
-                                    Show {hiddenCount} more
-                                  </>
-                                )}
-                              </button>
-                            )}
+                        return (
+                          <div key={templateId}>
+                            <div className="mb-3 flex items-center justify-between">
+                              <h3 className="text-sm font-medium text-zinc-300">
+                                {template?.name || templateId} ({jobs.length})
+                              </h3>
+                              {hiddenCount > 0 && (
+                                <button
+                                  onClick={() => toggleGroupExpanded(templateId)}
+                                  className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
+                                >
+                                  {isExpanded ? (
+                                    <>
+                                      <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                      </svg>
+                                      Collapse
+                                    </>
+                                  ) : (
+                                    <>
+                                      <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                      </svg>
+                                      Show {hiddenCount} more
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                            <div className="space-y-2">
+                              {visibleJobs.map((job) => (
+                                <JobCard key={job.id} job={job} template={template} />
+                              ))}
+                            </div>
                           </div>
-                          <div className="space-y-2">
-                            {visibleJobs.map((job) => (
-                              <JobCard key={job.id} job={job} template={template} />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {history.map((job) => (
-                      <JobCard key={job.id} job={job} template={getTemplateForJob(job)} />
-                    ))}
-                  </div>
-                )
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {historyJobs.map((job) => (
+                        <JobCard key={job.id} job={job} template={getTemplateForJob(job)} />
+                      ))}
+                    </div>
+                  )}
+                  {hasMoreHistory && (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        onClick={loadMoreHistory}
+                        disabled={isLoadingMore}
+                        className="rounded-sm bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700 disabled:opacity-50"
+                      >
+                        {isLoadingMore ? 'Loading...' : 'Load More'}
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="rounded-sm border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
                   No job history

@@ -7,6 +7,7 @@ import type {
   SystemStatus,
   ApiError,
   User,
+  HistoryResponse,
 } from '../types';
 import { getConfig } from '../config';
 
@@ -129,8 +130,12 @@ class ApiClient {
     return this.request<Job[]>(`/groups/${groupId}/queue`);
   }
 
-  async getHistory(groupId: string, limit = 50): Promise<Job[]> {
-    return this.request<Job[]>(`/groups/${groupId}/history?limit=${limit}`);
+  async getHistory(groupId: string, limit = 50, before?: string): Promise<HistoryResponse> {
+    let url = `/groups/${groupId}/history?limit=${limit}`;
+    if (before) {
+      url += `&before=${encodeURIComponent(before)}`;
+    }
+    return this.request<HistoryResponse>(url);
   }
 
   async getJob(id: string): Promise<Job> {

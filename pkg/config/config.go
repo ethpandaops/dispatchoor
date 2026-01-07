@@ -18,6 +18,7 @@ type Config struct {
 	GitHub     GitHubConfig     `yaml:"github"`
 	Dispatcher DispatcherConfig `yaml:"dispatcher"`
 	Auth       AuthConfig       `yaml:"auth"`
+	History    HistoryConfig    `yaml:"history"`
 	Groups     GroupsConfig     `yaml:"groups"`
 }
 
@@ -90,6 +91,12 @@ type GitHubAuthConfig struct {
 	ClientSecret string            `yaml:"client_secret"`
 	AllowedOrgs  []string          `yaml:"allowed_orgs"`
 	RoleMapping  map[string]string `yaml:"role_mapping"`
+}
+
+// HistoryConfig contains job history retention settings.
+type HistoryConfig struct {
+	RetentionDays   int           `yaml:"retention_days"`   // default 30, -1 to disable
+	CleanupInterval time.Duration `yaml:"cleanup_interval"` // default 1h
 }
 
 // GroupsConfig contains all group configurations.
@@ -253,6 +260,14 @@ func applyDefaults(cfg *Config) {
 
 	if cfg.Auth.SessionTTL == 0 {
 		cfg.Auth.SessionTTL = 24 * time.Hour
+	}
+
+	if cfg.History.RetentionDays == 0 {
+		cfg.History.RetentionDays = 30
+	}
+
+	if cfg.History.CleanupInterval == 0 {
+		cfg.History.CleanupInterval = time.Hour
 	}
 
 	// Set default refs for workflow dispatch templates.

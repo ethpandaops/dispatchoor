@@ -755,17 +755,33 @@ func (s *server) handleReorderQueue(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// historyResponse wraps the paginated history response.
+type historyResponse struct {
+	Jobs       []*store.Job `json:"jobs"`
+	HasMore    bool         `json:"has_more"`
+	NextCursor string       `json:"next_cursor,omitempty"`
+}
+
 func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "id")
 
 	limit := 50
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 			limit = l
 		}
 	}
 
-	jobs, err := s.queue.ListHistory(r.Context(), groupID, limit)
+	var before *time.Time
+
+	if beforeStr := r.URL.Query().Get("before"); beforeStr != "" {
+		t, err := time.Parse(time.RFC3339Nano, beforeStr)
+		if err == nil {
+			before = &t
+		}
+	}
+
+	result, err := s.queue.ListHistoryPaginated(r.Context(), groupID, limit, before)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to get history")
 		s.writeError(w, http.StatusInternalServerError, "Failed to get history")
@@ -773,11 +789,20 @@ func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if jobs == nil {
-		jobs = []*store.Job{}
+	resp := historyResponse{
+		Jobs:    result.Jobs,
+		HasMore: result.HasMore,
 	}
 
-	s.writeJSON(w, http.StatusOK, jobs)
+	if result.NextCursor != nil {
+		resp.NextCursor = result.NextCursor.Format(time.RFC3339Nano)
+	}
+
+	if resp.Jobs == nil {
+		resp.Jobs = []*store.Job{}
+	}
+
+	s.writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *server) handleRefreshRunners(w http.ResponseWriter, _ *http.Request) {

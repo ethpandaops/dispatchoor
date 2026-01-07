@@ -31,8 +31,10 @@ type Store interface {
 	GetJob(ctx context.Context, id string) (*Job, error)
 	ListJobsByGroup(ctx context.Context, groupID string, statuses ...JobStatus) ([]*Job, error)
 	ListJobsByStatus(ctx context.Context, statuses ...JobStatus) ([]*Job, error)
+	ListJobHistory(ctx context.Context, opts HistoryQueryOpts) (*HistoryResult, error)
 	UpdateJob(ctx context.Context, job *Job) error
 	DeleteJob(ctx context.Context, id string) error
+	DeleteOldJobs(ctx context.Context, olderThan time.Time) (int64, error)
 	ReorderJobs(ctx context.Context, groupID string, jobIDs []string) error
 	GetNextPendingJob(ctx context.Context, groupID string) (*Job, error)
 	GetMaxPosition(ctx context.Context, groupID string) (int, error)
@@ -237,4 +239,18 @@ type AuditQueryOpts struct {
 	Until      *time.Time
 	Limit      int
 	Offset     int
+}
+
+// HistoryQueryOpts contains options for querying job history.
+type HistoryQueryOpts struct {
+	GroupID string
+	Limit   int
+	Before  *time.Time // cursor: fetch jobs completed before this time
+}
+
+// HistoryResult contains paginated history results.
+type HistoryResult struct {
+	Jobs       []*Job
+	HasMore    bool
+	NextCursor *time.Time // completed_at of the last job
 }
