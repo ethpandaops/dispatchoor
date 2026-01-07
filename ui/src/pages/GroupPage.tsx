@@ -370,20 +370,20 @@ export function GroupPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="rounded-sm border border-zinc-800 bg-zinc-900 p-4">
-          <div className="text-2xl font-bold text-zinc-100">{pendingJobs.length}</div>
-          <div className="text-sm text-zinc-400">Queued</div>
-        </div>
-        <div className="rounded-sm border border-zinc-800 bg-zinc-900 p-4">
           <div className="text-2xl font-bold text-green-400">{activeJobs.length}</div>
           <div className="text-sm text-zinc-400">Running</div>
         </div>
         <div className="rounded-sm border border-zinc-800 bg-zinc-900 p-4">
-          <div className="text-2xl font-bold text-blue-400">{idleRunners.length}</div>
-          <div className="text-sm text-zinc-400">Idle Runners</div>
+          <div className="text-2xl font-bold text-amber-400">{pendingJobs.length}</div>
+          <div className="text-sm text-zinc-400">Queued</div>
         </div>
         <div className="rounded-sm border border-zinc-800 bg-zinc-900 p-4">
-          <div className="text-2xl font-bold text-amber-400">{busyRunners.length}</div>
+          <div className="text-2xl font-bold text-blue-400">{busyRunners.length}</div>
           <div className="text-sm text-zinc-400">Busy Runners</div>
+        </div>
+        <div className="rounded-sm border border-zinc-800 bg-zinc-900 p-4">
+          <div className="text-2xl font-bold text-zinc-100">{idleRunners.length}</div>
+          <div className="text-sm text-zinc-400">Idle Runners</div>
         </div>
       </div>
 

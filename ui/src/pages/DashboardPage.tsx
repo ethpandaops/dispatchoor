@@ -3,8 +3,6 @@ import { useGroups, useSystemStatus } from '../hooks/useGroups';
 import type { GroupWithStats } from '../types';
 
 function GroupCard({ group }: { group: GroupWithStats }) {
-  const totalJobs = group.queued_jobs + group.running_jobs;
-
   return (
     <Link
       to={`/groups/${group.id}`}
@@ -24,18 +22,22 @@ function GroupCard({ group }: { group: GroupWithStats }) {
         )}
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-4">
+      <div className="mt-4 grid grid-cols-4 gap-4">
         <div>
-          <p className="text-2xl font-bold text-zinc-100">{totalJobs}</p>
-          <p className="text-xs text-zinc-500">Jobs in queue</p>
+          <p className="text-2xl font-bold text-green-400">{group.running_jobs}</p>
+          <p className="text-xs text-zinc-500">Running</p>
         </div>
         <div>
-          <p className="text-2xl font-bold text-green-400">{group.idle_runners}</p>
-          <p className="text-xs text-zinc-500">Idle runners</p>
+          <p className="text-2xl font-bold text-amber-400">{group.queued_jobs}</p>
+          <p className="text-xs text-zinc-500">Queued</p>
         </div>
         <div>
-          <p className="text-2xl font-bold text-amber-400">{group.busy_runners}</p>
+          <p className="text-2xl font-bold text-blue-400">{group.busy_runners}</p>
           <p className="text-xs text-zinc-500">Busy runners</p>
+        </div>
+        <div>
+          <p className="text-2xl font-bold text-zinc-100">{group.idle_runners}</p>
+          <p className="text-xs text-zinc-500">Idle runners</p>
         </div>
       </div>
 
