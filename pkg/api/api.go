@@ -274,12 +274,83 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (s *server) handleStatus(w http.ResponseWriter, _ *http.Request) {
-	s.writeJSON(w, http.StatusOK, map[string]any{
-		"status":    "ok",
-		"version":   "dev",
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-	})
+func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Initialize response with current timestamp.
+	resp := SystemStatusResponse{
+		Status:    ComponentStatusHealthy,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Check database health with timeout.
+	dbCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	dbStart := time.Now()
+
+	if err := s.store.Ping(dbCtx); err != nil {
+		resp.Database = DatabaseStatus{
+			Status: ComponentStatusUnhealthy,
+			Error:  err.Error(),
+		}
+
+		resp.Status = ComponentStatusDegraded
+	} else {
+		resp.Database = DatabaseStatus{
+			Status:  ComponentStatusHealthy,
+			Latency: fmt.Sprintf("%dms", time.Since(dbStart).Milliseconds()),
+		}
+	}
+
+	// GitHub rate limit info.
+	remaining := s.ghClient.RateLimitRemaining()
+	resetTime := s.ghClient.RateLimitReset()
+
+	githubStatus := ComponentStatusHealthy
+	if remaining < 100 {
+		githubStatus = ComponentStatusDegraded
+	}
+
+	if remaining < 10 {
+		githubStatus = ComponentStatusUnhealthy
+
+		if resp.Status == ComponentStatusHealthy {
+			resp.Status = ComponentStatusDegraded
+		}
+	}
+
+	resetIn := time.Until(resetTime)
+	if resetIn < 0 {
+		resetIn = 0
+	}
+
+	resp.GitHub = GitHubStatus{
+		Status:             githubStatus,
+		RateLimitRemaining: remaining,
+		RateLimitReset:     resetTime.UTC().Format(time.RFC3339),
+		ResetIn:            resetIn.Round(time.Second).String(),
+	}
+
+	// Queue statistics.
+	pendingJobs, _ := s.store.ListJobsByStatus(ctx, store.JobStatusPending)
+	triggeredJobs, _ := s.store.ListJobsByStatus(ctx, store.JobStatusTriggered)
+	runningJobs, _ := s.store.ListJobsByStatus(ctx, store.JobStatusRunning)
+
+	resp.Queue = QueueStats{
+		PendingJobs:   len(pendingJobs),
+		TriggeredJobs: len(triggeredJobs),
+		RunningJobs:   len(runningJobs),
+	}
+
+	// Version info.
+	resp.Version = VersionInfo{
+		Version:   "dev",
+		GitCommit: "unknown",
+		BuildDate: "unknown",
+	}
+
+	s.writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *server) handleListGroups(w http.ResponseWriter, r *http.Request) {
@@ -754,6 +825,58 @@ func (s *server) handleReorderQueue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ============================================================================
+// Status Types
+// ============================================================================
+
+// ComponentStatus represents health status of a component.
+type ComponentStatus string
+
+const (
+	ComponentStatusHealthy   ComponentStatus = "healthy"
+	ComponentStatusDegraded  ComponentStatus = "degraded"
+	ComponentStatusUnhealthy ComponentStatus = "unhealthy"
+)
+
+// DatabaseStatus contains database health information.
+type DatabaseStatus struct {
+	Status  ComponentStatus `json:"status"`
+	Latency string          `json:"latency,omitempty"`
+	Error   string          `json:"error,omitempty"`
+}
+
+// GitHubStatus contains GitHub API rate limit information.
+type GitHubStatus struct {
+	Status             ComponentStatus `json:"status"`
+	RateLimitRemaining int             `json:"rate_limit_remaining"`
+	RateLimitReset     string          `json:"rate_limit_reset"`
+	ResetIn            string          `json:"reset_in,omitempty"`
+}
+
+// QueueStats contains queue statistics.
+type QueueStats struct {
+	PendingJobs   int `json:"pending_jobs"`
+	TriggeredJobs int `json:"triggered_jobs"`
+	RunningJobs   int `json:"running_jobs"`
+}
+
+// VersionInfo contains build version information.
+type VersionInfo struct {
+	Version   string `json:"version"`
+	GitCommit string `json:"git_commit"`
+	BuildDate string `json:"build_date"`
+}
+
+// SystemStatusResponse is the comprehensive status response.
+type SystemStatusResponse struct {
+	Status    ComponentStatus `json:"status"`
+	Timestamp string          `json:"timestamp"`
+	Database  DatabaseStatus  `json:"database"`
+	GitHub    GitHubStatus    `json:"github"`
+	Queue     QueueStats      `json:"queue"`
+	Version   VersionInfo     `json:"version"`
 }
 
 // historyResponse wraps the paginated history response.

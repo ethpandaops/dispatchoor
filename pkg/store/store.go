@@ -11,6 +11,9 @@ type Store interface {
 	Start(ctx context.Context) error
 	Stop() error
 
+	// Health check.
+	Ping(ctx context.Context) error
+
 	// Groups.
 	CreateGroup(ctx context.Context, group *Group) error
 	GetGroup(ctx context.Context, id string) (*Group, error)

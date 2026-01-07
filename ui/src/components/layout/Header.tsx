@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { useUIStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
-import { useWebSocket } from '../../hooks/useWebSocket';
+import { StatusIndicator } from './StatusIndicator';
 
 export function Header() {
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
   const { user, logout } = useAuthStore();
-  const { isConnected } = useWebSocket();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -50,16 +49,8 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* WebSocket connection status */}
-        <div className="flex items-center gap-1.5">
-          <div
-            className={`size-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-zinc-600'}`}
-            title={isConnected ? 'Connected' : 'Disconnected'}
-          />
-          <span className="text-xs text-zinc-500">
-            {isConnected ? 'Live' : 'Offline'}
-          </span>
-        </div>
+        {/* System status indicator */}
+        <StatusIndicator />
 
         {/* GitHub link */}
         <a

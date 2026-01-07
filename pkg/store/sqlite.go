@@ -58,6 +58,15 @@ func (s *SQLiteStore) Stop() error {
 	return nil
 }
 
+// Ping checks database connectivity.
+func (s *SQLiteStore) Ping(ctx context.Context) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	return s.db.PingContext(ctx)
+}
+
 // Migrate runs database migrations.
 func (s *SQLiteStore) Migrate(ctx context.Context) error {
 	s.log.Info("Running database migrations")

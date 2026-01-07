@@ -63,6 +63,15 @@ func (s *PostgresStore) Stop() error {
 	return nil
 }
 
+// Ping checks database connectivity.
+func (s *PostgresStore) Ping(ctx context.Context) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	return s.db.PingContext(ctx)
+}
+
 // Migrate runs database migrations.
 func (s *PostgresStore) Migrate(ctx context.Context) error {
 	s.log.Info("Running database migrations")

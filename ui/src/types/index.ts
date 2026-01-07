@@ -98,10 +98,40 @@ export interface ApiError {
   error: string;
 }
 
-export interface SystemStatus {
-  status: string;
+export type ComponentStatus = 'healthy' | 'degraded' | 'unhealthy';
+
+export interface DatabaseStatus {
+  status: ComponentStatus;
+  latency?: string;
+  error?: string;
+}
+
+export interface GitHubStatus {
+  status: ComponentStatus;
+  rate_limit_remaining: number;
+  rate_limit_reset: string;
+  reset_in?: string;
+}
+
+export interface QueueStats {
+  pending_jobs: number;
+  triggered_jobs: number;
+  running_jobs: number;
+}
+
+export interface VersionInfo {
   version: string;
+  git_commit: string;
+  build_date: string;
+}
+
+export interface SystemStatus {
+  status: ComponentStatus;
   timestamp: string;
+  database: DatabaseStatus;
+  github: GitHubStatus;
+  queue: QueueStats;
+  version: VersionInfo;
 }
 
 // WebSocket message types

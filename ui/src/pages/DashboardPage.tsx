@@ -66,17 +66,20 @@ function StatusSummary() {
     return null;
   }
 
+  const statusColor =
+    status.status === 'healthy'
+      ? 'bg-green-500'
+      : status.status === 'degraded'
+        ? 'bg-amber-500'
+        : 'bg-red-500';
+
   return (
     <div className="flex items-center gap-3 rounded-sm border border-zinc-800 bg-zinc-900 px-4 py-2">
-      <span
-        className={`size-2 rounded-full ${
-          status.status === 'ok' ? 'bg-green-500' : 'bg-red-500'
-        }`}
-      />
+      <span className={`size-2 rounded-full ${statusColor}`} />
       <span className="text-sm font-medium text-zinc-200">
         System {status.status}
       </span>
-      <span className="text-xs text-zinc-500">v{status.version}</span>
+      <span className="text-xs text-zinc-500">v{status.version.version}</span>
     </div>
   );
 }
