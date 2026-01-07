@@ -69,6 +69,7 @@ export interface HistoryResponse {
   jobs: Job[];
   has_more: boolean;
   next_cursor?: string;
+  total_count: number;
 }
 
 export interface Runner {

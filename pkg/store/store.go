@@ -257,4 +257,5 @@ type HistoryResult struct {
 	Jobs       []*Job
 	HasMore    bool
 	NextCursor *time.Time // completed_at of the last job
+	TotalCount int
 }

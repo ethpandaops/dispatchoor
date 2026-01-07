@@ -809,6 +809,19 @@ func (s *PostgresStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpt
 		result.NextCursor = lastJob.CompletedAt
 	}
 
+	// Get total count.
+	var totalCount int
+
+	err = s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE group_id = $1 AND status IN ('completed', 'failed', 'cancelled')
+	`, opts.GroupID).Scan(&totalCount)
+	if err != nil {
+		return nil, fmt.Errorf("counting history jobs: %w", err)
+	}
+
+	result.TotalCount = totalCount
+
 	return result, nil
 }
 

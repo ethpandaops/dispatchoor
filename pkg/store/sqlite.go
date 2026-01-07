@@ -801,6 +801,19 @@ func (s *SQLiteStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpts)
 		result.NextCursor = lastJob.CompletedAt
 	}
 
+	// Get total count.
+	var totalCount int
+
+	err = s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM jobs
+		WHERE group_id = ? AND status IN ('completed', 'failed', 'cancelled')
+	`, opts.GroupID).Scan(&totalCount)
+	if err != nil {
+		return nil, fmt.Errorf("counting history jobs: %w", err)
+	}
+
+	result.TotalCount = totalCount
+
 	return result, nil
 }
 

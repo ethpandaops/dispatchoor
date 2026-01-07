@@ -760,6 +760,7 @@ type historyResponse struct {
 	Jobs       []*store.Job `json:"jobs"`
 	HasMore    bool         `json:"has_more"`
 	NextCursor string       `json:"next_cursor,omitempty"`
+	TotalCount int          `json:"total_count"`
 }
 
 func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
@@ -790,8 +791,9 @@ func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := historyResponse{
-		Jobs:    result.Jobs,
-		HasMore: result.HasMore,
+		Jobs:       result.Jobs,
+		HasMore:    result.HasMore,
+		TotalCount: result.TotalCount,
 	}
 
 	if result.NextCursor != nil {

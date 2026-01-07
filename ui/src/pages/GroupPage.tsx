@@ -177,7 +177,7 @@ export function GroupPage() {
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['history', id],
     queryFn: () => api.getHistory(id!),
-    enabled: !!id && activeTab === 'history',
+    enabled: !!id,
   });
 
   // Update history state when data changes or tab becomes active
@@ -411,7 +411,7 @@ export function GroupPage() {
                     : 'border-transparent text-zinc-400 hover:text-zinc-200'
                 }`}
               >
-                History
+                History ({historyData?.total_count ?? 0})
               </button>
               <button
                 onClick={() => setActiveTab('templates')}
