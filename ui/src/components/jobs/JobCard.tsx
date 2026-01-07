@@ -182,56 +182,6 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
             {template?.name || job.template_id}
           </h4>
 
-          {/* Metadata */}
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
-            {template && (
-              <span className="flex items-center gap-1">
-                <svg className="size-3.5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
-                </svg>
-                {template.owner}/{template.repo}
-              </span>
-            )}
-            <span className="flex items-center gap-1" title="Created at">
-              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              {formatTime(job.created_at)}
-            </span>
-            {job.triggered_at && (
-              <span className="flex items-center gap-1" title="Started at">
-                <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l14 9-14 9V3z" />
-                </svg>
-                {formatTime(job.triggered_at)}
-              </span>
-            )}
-            {getElapsedTime() && (
-              <span className="flex items-center gap-1">
-                <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                {getElapsedTime()}
-              </span>
-            )}
-            {job.completed_at && (
-              <span className="flex items-center gap-1" title="Completed at">
-                <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                {formatTime(job.completed_at)}
-              </span>
-            )}
-            {job.runner_name && (
-              <span className="flex items-center gap-1">
-                <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2" />
-                </svg>
-                {job.runner_name}
-              </span>
-            )}
-          </div>
-
           {/* Error message */}
           {job.error_message && (
             <div className="mt-2 rounded-sm bg-red-500/10 px-2 py-1 text-xs text-red-400">
@@ -338,6 +288,62 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* Bottom row: context left, timing right */}
+      <div className="mt-3 flex items-center justify-between gap-4 text-xs text-zinc-500">
+        {/* Context info - left */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {template && (
+            <span className="flex items-center gap-1">
+              <svg className="size-3.5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+              </svg>
+              {template.owner}/{template.repo}
+            </span>
+          )}
+          {job.runner_name && (
+            <span className="flex items-center gap-1">
+              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2" />
+              </svg>
+              {job.runner_name}
+            </span>
+          )}
+        </div>
+        {/* Timing info - right */}
+        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+          <span className="flex items-center gap-1" title="Created at">
+            <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {formatTime(job.created_at)}
+          </span>
+          {job.triggered_at && (
+            <span className="flex items-center gap-1" title="Started at">
+              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3l14 9-14 9V3z" />
+              </svg>
+              {formatTime(job.triggered_at)}
+            </span>
+          )}
+          {getElapsedTime() && (
+            <span className="flex items-center gap-1" title="Duration">
+              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              {getElapsedTime()}
+            </span>
+          )}
+          {job.completed_at && (
+            <span className="flex items-center gap-1" title="Completed at">
+              <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {formatTime(job.completed_at)}
+            </span>
           )}
         </div>
       </div>
