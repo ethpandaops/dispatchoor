@@ -728,18 +728,23 @@ func (s *server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// If the run is not cancelled or cancelling, return the original error.
-			if run.Conclusion != "cancelled" && run.Status != "completed" {
+			// If the run is already completed with a non-cancel conclusion, we can't cancel it.
+			if run.Status == "completed" && run.Conclusion != "cancelled" {
 				s.log.WithFields(logrus.Fields{
 					"status":     run.Status,
 					"conclusion": run.Conclusion,
-				}).Error("Workflow run was not cancelled")
-				s.writeError(w, http.StatusInternalServerError, "Failed to cancel workflow run on GitHub")
-
-				return
+				}).Warn("Workflow run already completed, cannot cancel")
+				// Still proceed to mark job as cancelled locally since the run is done.
+			} else if run.Conclusion == "cancelled" {
+				s.log.Info("Workflow run confirmed cancelled")
+			} else {
+				// Run is still in_progress - GitHub is processing the cancellation.
+				// This is expected; proceed with marking job cancelled locally.
+				s.log.WithFields(logrus.Fields{
+					"status":     run.Status,
+					"conclusion": run.Conclusion,
+				}).Info("Workflow run cancellation in progress")
 			}
-
-			s.log.Info("Workflow run confirmed cancelled despite initial error")
 		}
 	}
 
