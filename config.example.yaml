@@ -22,13 +22,13 @@ database:
 
 github:
   token: ${GITHUB_TOKEN}
-  poll_interval: 30s
+  poll_interval: 60s
   rate_limit_buffer: 100
 
 dispatcher:
   enabled: true
-  interval: 10s
-  max_concurrent: 5
+  interval: 30s
+  tracking_interval: 30s
 
 auth:
   session_ttl: 24h

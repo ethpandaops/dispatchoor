@@ -76,6 +76,10 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 		return err
 	}
 
+	// Create metrics.
+	m := metrics.New()
+	m.SetBuildInfo(Version, GitCommit, BuildDate)
+
 	// Create GitHub client.
 	ghClient := github.NewClient(log, cfg.GitHub.Token)
 
@@ -86,7 +90,7 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	defer ghClient.Stop()
 
 	// Create and start runner poller.
-	poller := github.NewPoller(log, cfg, ghClient, st)
+	poller := github.NewPoller(log, cfg, ghClient, st, m)
 
 	if err := poller.Start(ctx); err != nil {
 		return err
@@ -120,10 +124,6 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	}
 
 	defer authSvc.Stop()
-
-	// Create metrics.
-	m := metrics.New()
-	m.SetBuildInfo(Version, GitCommit, BuildDate)
 
 	// Create and start API server.
 	srv := api.NewServer(log, cfg, st, queueSvc, authSvc, m)

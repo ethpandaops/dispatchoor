@@ -58,8 +58,9 @@ type GitHubConfig struct {
 
 // DispatcherConfig contains dispatch loop settings.
 type DispatcherConfig struct {
-	Enabled  bool          `yaml:"enabled"`
-	Interval time.Duration `yaml:"interval"`
+	Enabled          bool          `yaml:"enabled"`
+	Interval         time.Duration `yaml:"interval"`
+	TrackingInterval time.Duration `yaml:"tracking_interval"`
 }
 
 // AuthConfig contains authentication settings.
@@ -235,7 +236,7 @@ func applyDefaults(cfg *Config) {
 	}
 
 	if cfg.GitHub.PollInterval == 0 {
-		cfg.GitHub.PollInterval = 30 * time.Second
+		cfg.GitHub.PollInterval = 60 * time.Second
 	}
 
 	if cfg.GitHub.RateLimitBuffer == 0 {
@@ -243,7 +244,11 @@ func applyDefaults(cfg *Config) {
 	}
 
 	if cfg.Dispatcher.Interval == 0 {
-		cfg.Dispatcher.Interval = 10 * time.Second
+		cfg.Dispatcher.Interval = 30 * time.Second
+	}
+
+	if cfg.Dispatcher.TrackingInterval == 0 {
+		cfg.Dispatcher.TrackingInterval = 30 * time.Second
 	}
 
 	if cfg.Auth.SessionTTL == 0 {
@@ -374,8 +379,8 @@ func (c *Config) String() string {
 	sb.WriteString(fmt.Sprintf("Server: listen=%s\n", c.Server.Listen))
 	sb.WriteString(fmt.Sprintf("Database: driver=%s\n", c.Database.Driver))
 	sb.WriteString(fmt.Sprintf("GitHub: poll_interval=%s\n", c.GitHub.PollInterval))
-	sb.WriteString(fmt.Sprintf("Dispatcher: enabled=%t interval=%s\n",
-		c.Dispatcher.Enabled, c.Dispatcher.Interval))
+	sb.WriteString(fmt.Sprintf("Dispatcher: enabled=%t interval=%s tracking_interval=%s\n",
+		c.Dispatcher.Enabled, c.Dispatcher.Interval, c.Dispatcher.TrackingInterval))
 	sb.WriteString(fmt.Sprintf("Auth: basic=%t github=%t\n",
 		c.Auth.Basic.Enabled, c.Auth.GitHub.Enabled))
 	sb.WriteString(fmt.Sprintf("Groups: %d\n", len(c.Groups.GitHub)))

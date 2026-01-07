@@ -31,7 +31,8 @@ type dispatcher struct {
 	queue    queue.Service
 	ghClient github.Client
 
-	interval time.Duration
+	interval         time.Duration
+	trackingInterval time.Duration
 
 	cancel               context.CancelFunc
 	wg                   sync.WaitGroup
@@ -51,12 +52,13 @@ func NewDispatcher(
 	ghClient github.Client,
 ) Dispatcher {
 	return &dispatcher{
-		log:      log.WithField("component", "dispatcher"),
-		cfg:      cfg,
-		store:    st,
-		queue:    q,
-		ghClient: ghClient,
-		interval: cfg.Dispatcher.Interval,
+		log:              log.WithField("component", "dispatcher"),
+		cfg:              cfg,
+		store:            st,
+		queue:            q,
+		ghClient:         ghClient,
+		interval:         cfg.Dispatcher.Interval,
+		trackingInterval: cfg.Dispatcher.TrackingInterval,
 	}
 }
 
@@ -264,8 +266,7 @@ func (d *dispatcher) dispatchForGroup(ctx context.Context, group *store.Group) e
 func (d *dispatcher) trackRunsLoop(ctx context.Context) {
 	defer d.wg.Done()
 
-	// Poll more frequently than dispatch since we want timely status updates.
-	ticker := time.NewTicker(d.interval / 2)
+	ticker := time.NewTicker(d.trackingInterval)
 	defer ticker.Stop()
 
 	for {

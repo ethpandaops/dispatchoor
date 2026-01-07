@@ -27,6 +27,7 @@ type poller struct {
 	cfg                  *config.Config
 	client               Client
 	store                store.Store
+	metrics              Metrics
 	interval             time.Duration
 	rateLimitBuffer      int
 	cancel               context.CancelFunc
@@ -34,6 +35,11 @@ type poller struct {
 	mu                   sync.Mutex
 	lastPoll             time.Time
 	runnerChangeCallback RunnerChangeCallback
+}
+
+// Metrics interface for rate limit tracking.
+type Metrics interface {
+	SetGitHubRateLimit(remaining float64)
 }
 
 // Ensure poller implements Poller.
@@ -45,12 +51,14 @@ func NewPoller(
 	cfg *config.Config,
 	client Client,
 	st store.Store,
+	m Metrics,
 ) Poller {
 	return &poller{
 		log:             log.WithField("component", "poller"),
 		cfg:             cfg,
 		client:          client,
 		store:           st,
+		metrics:         m,
 		interval:        cfg.GitHub.PollInterval,
 		rateLimitBuffer: cfg.GitHub.RateLimitBuffer,
 	}
@@ -134,6 +142,8 @@ func (p *poller) poll(ctx context.Context) error {
 
 	// Check rate limit before polling.
 	remaining := p.client.RateLimitRemaining()
+	p.metrics.SetGitHubRateLimit(float64(remaining))
+
 	if remaining < p.rateLimitBuffer {
 		resetAt := p.client.RateLimitReset()
 		p.log.WithFields(logrus.Fields{
@@ -241,9 +251,13 @@ func (p *poller) poll(ctx context.Context) error {
 		p.log.WithError(err).Error("Failed to delete stale runners")
 	}
 
+	// Update rate limit metric after poll.
+	remaining = p.client.RateLimitRemaining()
+	p.metrics.SetGitHubRateLimit(float64(remaining))
+
 	p.log.WithFields(logrus.Fields{
 		"runners":        len(allRunners),
-		"rate_remaining": p.client.RateLimitRemaining(),
+		"rate_remaining": remaining,
 	}).Info("Poll completed")
 
 	return nil
