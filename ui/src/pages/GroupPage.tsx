@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -71,15 +71,66 @@ function RunnerCard({ runner }: { runner: Runner }) {
   );
 }
 
+type TabType = 'queue' | 'history' | 'templates';
+type HistoryViewType = 'linear' | 'grouped';
+
+const validTabs: TabType[] = ['queue', 'history', 'templates'];
+const validHistoryViews: HistoryViewType[] = ['linear', 'grouped'];
+
 export function GroupPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const isAdmin = user?.role === 'admin';
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [preselectedTemplateId, setPreselectedTemplateId] = useState<string | undefined>();
-  const [activeTab, setActiveTab] = useState<'queue' | 'history' | 'templates'>('queue');
+
+  // Get active tab from URL, default to 'queue'
+  const tabParam = searchParams.get('tab');
+  const activeTab: TabType = validTabs.includes(tabParam as TabType) ? (tabParam as TabType) : 'queue';
+
+  // Get history view mode from URL, default to 'linear'
+  const viewParam = searchParams.get('view');
+  const historyViewMode: HistoryViewType = validHistoryViews.includes(viewParam as HistoryViewType)
+    ? (viewParam as HistoryViewType)
+    : 'linear';
+
+  const setActiveTab = (tab: TabType) => {
+    setSearchParams((prev) => {
+      if (tab === 'queue') {
+        prev.delete('tab');
+      } else {
+        prev.set('tab', tab);
+      }
+      return prev;
+    });
+  };
+
+  const setHistoryViewMode = (view: HistoryViewType) => {
+    setSearchParams((prev) => {
+      if (view === 'linear') {
+        prev.delete('view');
+      } else {
+        prev.set('view', view);
+      }
+      return prev;
+    });
+  };
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const { subscribe, unsubscribe } = useWebSocket();
+
+  const toggleGroupExpanded = (templateId: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(templateId)) {
+        next.delete(templateId);
+      } else {
+        next.add(templateId);
+      }
+      return next;
+    });
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -134,6 +185,20 @@ export function GroupPage() {
   });
 
   const getTemplateForJob = (job: Job) => templates.find((t) => t.id === job.template_id);
+
+  // Group history jobs by template for grouped view
+  const groupedHistory = useMemo(() => {
+    const groups = new Map<string, { template: JobTemplate | undefined; jobs: Job[] }>();
+    for (const job of history) {
+      const template = getTemplateForJob(job);
+      const key = job.template_id;
+      if (!groups.has(key)) {
+        groups.set(key, { template, jobs: [] });
+      }
+      groups.get(key)!.jobs.push(job);
+    }
+    return Array.from(groups.values());
+  }, [history, templates]);
 
   const pendingJobs = queue.filter((j) => j.status === 'pending').sort((a, b) => a.position - b.position);
   const activeJobs = queue.filter((j) => j.status === 'triggered' || j.status === 'running');
@@ -308,11 +373,85 @@ export function GroupPage() {
               </div>
             </div>
           ) : activeTab === 'history' ? (
-            <div className="space-y-2">
+            <div className="space-y-4">
+              {/* View mode toggle */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setHistoryViewMode('linear')}
+                  className={`px-2 py-1 text-xs rounded-sm ${
+                    historyViewMode === 'linear'
+                      ? 'bg-zinc-700 text-zinc-200'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  Linear
+                </button>
+                <button
+                  onClick={() => setHistoryViewMode('grouped')}
+                  className={`px-2 py-1 text-xs rounded-sm ${
+                    historyViewMode === 'grouped'
+                      ? 'bg-zinc-700 text-zinc-200'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  Grouped
+                </button>
+              </div>
+
               {history.length > 0 ? (
-                history.map((job) => (
-                  <JobCard key={job.id} job={job} template={getTemplateForJob(job)} />
-                ))
+                historyViewMode === 'grouped' ? (
+                  <div className="space-y-6">
+                    {groupedHistory.map(({ template, jobs }) => {
+                      const templateId = template?.id || jobs[0].template_id;
+                      const isExpanded = expandedGroups.has(templateId);
+                      const visibleJobs = isExpanded ? jobs : [jobs[0]];
+                      const hiddenCount = jobs.length - 1;
+
+                      return (
+                        <div key={templateId}>
+                          <div className="mb-3 flex items-center justify-between">
+                            <h3 className="text-sm font-medium text-zinc-300">
+                              {template?.name || templateId} ({jobs.length})
+                            </h3>
+                            {hiddenCount > 0 && (
+                              <button
+                                onClick={() => toggleGroupExpanded(templateId)}
+                                className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
+                              >
+                                {isExpanded ? (
+                                  <>
+                                    <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                    </svg>
+                                    Collapse
+                                  </>
+                                ) : (
+                                  <>
+                                    <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                    Show {hiddenCount} more
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            {visibleJobs.map((job) => (
+                              <JobCard key={job.id} job={job} template={template} />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {history.map((job) => (
+                      <JobCard key={job.id} job={job} template={getTemplateForJob(job)} />
+                    ))}
+                  </div>
+                )
               ) : (
                 <div className="rounded-sm border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
                   No job history
