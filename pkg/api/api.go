@@ -1021,6 +1021,12 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 			}
 		}
 
+		// Build set of template IDs in config for this group.
+		configTemplateIDs := make(map[string]bool, len(groupCfg.WorkflowDispatchTemplates))
+		for _, tmplCfg := range groupCfg.WorkflowDispatchTemplates {
+			configTemplateIDs[tmplCfg.ID] = true
+		}
+
 		// Sync job templates (upsert instead of delete/recreate to preserve jobs).
 		for _, tmplCfg := range groupCfg.WorkflowDispatchTemplates {
 			template := &store.JobTemplate{
@@ -1033,6 +1039,7 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 				Ref:           tmplCfg.Ref,
 				DefaultInputs: tmplCfg.Inputs,
 				Labels:        tmplCfg.Labels,
+				InConfig:      true,
 				CreatedAt:     now,
 				UpdatedAt:     now,
 			}
@@ -1062,6 +1069,54 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 
 				if err := st.UpdateJobTemplate(ctx, template); err != nil {
 					return fmt.Errorf("updating job template %s: %w", tmplCfg.ID, err)
+				}
+			}
+		}
+
+		// Handle orphaned templates: templates in DB but not in config.
+		dbTemplates, err := st.ListJobTemplatesByGroup(ctx, groupCfg.ID)
+		if err != nil {
+			return fmt.Errorf("listing templates for group %s: %w", groupCfg.ID, err)
+		}
+
+		for _, dbTmpl := range dbTemplates {
+			if configTemplateIDs[dbTmpl.ID] {
+				continue // Template is in config, skip.
+			}
+
+			// Template not in config - check if it has any jobs.
+			hasJobs, err := st.HasAnyJobs(ctx, dbTmpl.ID)
+			if err != nil {
+				log.WithError(err).WithField("template", dbTmpl.ID).Warn("Failed to check jobs for orphaned template")
+
+				continue
+			}
+
+			if !hasJobs {
+				// No jobs, safe to delete.
+				if err := st.DeleteJobTemplate(ctx, dbTmpl.ID); err != nil {
+					log.WithError(err).WithField("template", dbTmpl.ID).Warn("Failed to delete orphaned template")
+				} else {
+					log.WithFields(logrus.Fields{
+						"group":    groupCfg.ID,
+						"template": dbTmpl.ID,
+						"name":     dbTmpl.Name,
+					}).Info("Deleted orphaned template with no jobs")
+				}
+
+				continue
+			}
+
+			// Has jobs - mark as not in config if not already.
+			if dbTmpl.InConfig {
+				if err := st.UpdateTemplateInConfig(ctx, dbTmpl.ID, false); err != nil {
+					log.WithError(err).WithField("template", dbTmpl.ID).Warn("Failed to mark template as not in config")
+				} else {
+					log.WithFields(logrus.Fields{
+						"group":    groupCfg.ID,
+						"template": dbTmpl.ID,
+						"name":     dbTmpl.Name,
+					}).Info("Marked template as not in config (has job history)")
 				}
 			}
 		}

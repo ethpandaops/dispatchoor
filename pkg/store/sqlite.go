@@ -164,6 +164,8 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_jobs_completed_at ON jobs(completed_at)`,
 		// Migration: Add labels column to job_templates table.
 		`ALTER TABLE job_templates ADD COLUMN labels TEXT`,
+		// Migration: Add in_config column to job_templates table.
+		`ALTER TABLE job_templates ADD COLUMN in_config INTEGER DEFAULT 1`,
 	}
 
 	for _, migration := range migrations {
@@ -320,10 +322,10 @@ func (s *SQLiteStore) CreateJobTemplate(ctx context.Context, template *JobTempla
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO job_templates (id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO job_templates (id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, template.ID, template.GroupID, template.Name, template.Owner, template.Repo,
-		template.WorkflowID, template.Ref, string(inputsJSON), string(labelsJSON), template.CreatedAt, template.UpdatedAt)
+		template.WorkflowID, template.Ref, string(inputsJSON), string(labelsJSON), template.InConfig, template.CreatedAt, template.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("inserting job_template: %w", err)
@@ -338,12 +340,14 @@ func (s *SQLiteStore) GetJobTemplate(ctx context.Context, id string) (*JobTempla
 
 	var inputsJSON, labelsJSON sql.NullString
 
+	var inConfig int
+
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, created_at, updated_at
+		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, created_at, updated_at
 		FROM job_templates WHERE id = ?
 	`, id).Scan(&template.ID, &template.GroupID, &template.Name, &template.Owner,
 		&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON, &labelsJSON,
-		&template.CreatedAt, &template.UpdatedAt)
+		&inConfig, &template.CreatedAt, &template.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -365,13 +369,15 @@ func (s *SQLiteStore) GetJobTemplate(ctx context.Context, id string) (*JobTempla
 		}
 	}
 
+	template.InConfig = inConfig == 1
+
 	return &template, nil
 }
 
 // ListJobTemplatesByGroup retrieves all job templates for a group.
 func (s *SQLiteStore) ListJobTemplatesByGroup(ctx context.Context, groupID string) ([]*JobTemplate, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, created_at, updated_at
+		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, created_at, updated_at
 		FROM job_templates WHERE group_id = ? ORDER BY name
 	`, groupID)
 	if err != nil {
@@ -387,9 +393,11 @@ func (s *SQLiteStore) ListJobTemplatesByGroup(ctx context.Context, groupID strin
 
 		var inputsJSON, labelsJSON sql.NullString
 
+		var inConfig int
+
 		if err := rows.Scan(&template.ID, &template.GroupID, &template.Name, &template.Owner,
 			&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON, &labelsJSON,
-			&template.CreatedAt, &template.UpdatedAt); err != nil {
+			&inConfig, &template.CreatedAt, &template.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning job_template: %w", err)
 		}
 
@@ -405,6 +413,7 @@ func (s *SQLiteStore) ListJobTemplatesByGroup(ctx context.Context, groupID strin
 			}
 		}
 
+		template.InConfig = inConfig == 1
 		templates = append(templates, &template)
 	}
 
@@ -426,10 +435,10 @@ func (s *SQLiteStore) UpdateJobTemplate(ctx context.Context, template *JobTempla
 	template.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE job_templates SET name = ?, owner = ?, repo = ?, workflow_id = ?, ref = ?, default_inputs = ?, labels = ?, updated_at = ?
+		UPDATE job_templates SET name = ?, owner = ?, repo = ?, workflow_id = ?, ref = ?, default_inputs = ?, labels = ?, in_config = ?, updated_at = ?
 		WHERE id = ?
 	`, template.Name, template.Owner, template.Repo, template.WorkflowID, template.Ref,
-		string(inputsJSON), string(labelsJSON), template.UpdatedAt, template.ID)
+		string(inputsJSON), string(labelsJSON), template.InConfig, template.UpdatedAt, template.ID)
 
 	if err != nil {
 		return fmt.Errorf("updating job_template: %w", err)
@@ -456,6 +465,32 @@ func (s *SQLiteStore) DeleteJobTemplatesByGroup(ctx context.Context, groupID str
 	}
 
 	return nil
+}
+
+// UpdateTemplateInConfig updates the in_config status of a job template.
+func (s *SQLiteStore) UpdateTemplateInConfig(ctx context.Context, id string, inConfig bool) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE job_templates SET in_config = ?, updated_at = ? WHERE id = ?
+	`, inConfig, time.Now().UTC(), id)
+
+	if err != nil {
+		return fmt.Errorf("updating template in_config: %w", err)
+	}
+
+	return nil
+}
+
+// HasAnyJobs checks if a template has any jobs (regardless of status).
+func (s *SQLiteStore) HasAnyJobs(ctx context.Context, templateID string) (bool, error) {
+	var count int
+
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM jobs WHERE template_id = ?", templateID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("counting jobs for template: %w", err)
+	}
+
+	return count > 0, nil
 }
 
 // ============================================================================

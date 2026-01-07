@@ -189,6 +189,12 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		EXCEPTION
 			WHEN duplicate_column THEN NULL;
 		END $$`,
+		// Migration: Add in_config column to job_templates table.
+		`DO $$ BEGIN
+			ALTER TABLE job_templates ADD COLUMN in_config BOOLEAN DEFAULT true;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
 	}
 
 	for _, migration := range migrations {
@@ -333,10 +339,10 @@ func (s *PostgresStore) CreateJobTemplate(ctx context.Context, template *JobTemp
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO job_templates (id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO job_templates (id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`, template.ID, template.GroupID, template.Name, template.Owner, template.Repo,
-		template.WorkflowID, template.Ref, string(inputsJSON), string(labelsJSON), template.CreatedAt, template.UpdatedAt)
+		template.WorkflowID, template.Ref, string(inputsJSON), string(labelsJSON), template.InConfig, template.CreatedAt, template.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("inserting job_template: %w", err)
@@ -352,11 +358,11 @@ func (s *PostgresStore) GetJobTemplate(ctx context.Context, id string) (*JobTemp
 	var inputsJSON, labelsJSON sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, created_at, updated_at
+		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, created_at, updated_at
 		FROM job_templates WHERE id = $1
 	`, id).Scan(&template.ID, &template.GroupID, &template.Name, &template.Owner,
 		&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON, &labelsJSON,
-		&template.CreatedAt, &template.UpdatedAt)
+		&template.InConfig, &template.CreatedAt, &template.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -384,7 +390,7 @@ func (s *PostgresStore) GetJobTemplate(ctx context.Context, id string) (*JobTemp
 // ListJobTemplatesByGroup retrieves all job templates for a group.
 func (s *PostgresStore) ListJobTemplatesByGroup(ctx context.Context, groupID string) ([]*JobTemplate, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, created_at, updated_at
+		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, created_at, updated_at
 		FROM job_templates WHERE group_id = $1 ORDER BY name
 	`, groupID)
 	if err != nil {
@@ -402,7 +408,7 @@ func (s *PostgresStore) ListJobTemplatesByGroup(ctx context.Context, groupID str
 
 		if err := rows.Scan(&template.ID, &template.GroupID, &template.Name, &template.Owner,
 			&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON, &labelsJSON,
-			&template.CreatedAt, &template.UpdatedAt); err != nil {
+			&template.InConfig, &template.CreatedAt, &template.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning job_template: %w", err)
 		}
 
@@ -439,10 +445,10 @@ func (s *PostgresStore) UpdateJobTemplate(ctx context.Context, template *JobTemp
 	template.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE job_templates SET name = $1, owner = $2, repo = $3, workflow_id = $4, ref = $5, default_inputs = $6, labels = $7, updated_at = $8
-		WHERE id = $9
+		UPDATE job_templates SET name = $1, owner = $2, repo = $3, workflow_id = $4, ref = $5, default_inputs = $6, labels = $7, in_config = $8, updated_at = $9
+		WHERE id = $10
 	`, template.Name, template.Owner, template.Repo, template.WorkflowID, template.Ref,
-		string(inputsJSON), string(labelsJSON), template.UpdatedAt, template.ID)
+		string(inputsJSON), string(labelsJSON), template.InConfig, template.UpdatedAt, template.ID)
 
 	if err != nil {
 		return fmt.Errorf("updating job_template: %w", err)
@@ -469,6 +475,32 @@ func (s *PostgresStore) DeleteJobTemplatesByGroup(ctx context.Context, groupID s
 	}
 
 	return nil
+}
+
+// UpdateTemplateInConfig updates the in_config status of a job template.
+func (s *PostgresStore) UpdateTemplateInConfig(ctx context.Context, id string, inConfig bool) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE job_templates SET in_config = $1, updated_at = $2 WHERE id = $3
+	`, inConfig, time.Now().UTC(), id)
+
+	if err != nil {
+		return fmt.Errorf("updating template in_config: %w", err)
+	}
+
+	return nil
+}
+
+// HasAnyJobs checks if a template has any jobs (regardless of status).
+func (s *PostgresStore) HasAnyJobs(ctx context.Context, templateID string) (bool, error) {
+	var count int
+
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM jobs WHERE template_id = $1", templateID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("counting jobs for template: %w", err)
+	}
+
+	return count > 0, nil
 }
 
 // ============================================================================

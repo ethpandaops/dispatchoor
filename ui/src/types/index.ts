@@ -37,6 +37,7 @@ export interface JobTemplate {
   ref: string;
   default_inputs: Record<string, string>;
   labels?: Record<string, string>;
+  in_config: boolean;
   created_at: string;
   updated_at: string;
 }

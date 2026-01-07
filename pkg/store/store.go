@@ -25,6 +25,8 @@ type Store interface {
 	UpdateJobTemplate(ctx context.Context, template *JobTemplate) error
 	DeleteJobTemplate(ctx context.Context, id string) error
 	DeleteJobTemplatesByGroup(ctx context.Context, groupID string) error
+	UpdateTemplateInConfig(ctx context.Context, id string, inConfig bool) error
+	HasAnyJobs(ctx context.Context, templateID string) (bool, error)
 
 	// Jobs.
 	CreateJob(ctx context.Context, job *Job) error
@@ -94,6 +96,7 @@ type JobTemplate struct {
 	Ref           string            `json:"ref"`
 	DefaultInputs map[string]string `json:"default_inputs"`
 	Labels        map[string]string `json:"labels"`
+	InConfig      bool              `json:"in_config"`
 	CreatedAt     time.Time         `json:"created_at"`
 	UpdatedAt     time.Time         `json:"updated_at"`
 }
