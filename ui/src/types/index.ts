@@ -36,6 +36,7 @@ export interface JobTemplate {
   workflow_id: string;
   ref: string;
   default_inputs: Record<string, string>;
+  labels?: Record<string, string>;
   created_at: string;
   updated_at: string;
 }

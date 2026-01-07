@@ -123,6 +123,7 @@ type WorkflowDispatchTemplate struct {
 	WorkflowID string            `yaml:"workflow_id"`
 	Ref        string            `yaml:"ref"`
 	Inputs     map[string]string `yaml:"inputs"`
+	Labels     map[string]string `yaml:"labels"`
 }
 
 // Load reads and parses configuration from a YAML file.

@@ -183,6 +183,12 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		END $$`,
 		// Index for efficient history cleanup and pagination.
 		`CREATE INDEX IF NOT EXISTS idx_jobs_completed_at ON jobs(completed_at)`,
+		// Migration: Add labels column to job_templates table.
+		`DO $$ BEGIN
+			ALTER TABLE job_templates ADD COLUMN labels JSONB;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
 	}
 
 	for _, migration := range migrations {
@@ -321,11 +327,16 @@ func (s *PostgresStore) CreateJobTemplate(ctx context.Context, template *JobTemp
 		return fmt.Errorf("marshaling default_inputs: %w", err)
 	}
 
+	labelsJSON, err := json.Marshal(template.Labels)
+	if err != nil {
+		return fmt.Errorf("marshaling labels: %w", err)
+	}
+
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO job_templates (id, group_id, name, owner, repo, workflow_id, ref, default_inputs, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO job_templates (id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`, template.ID, template.GroupID, template.Name, template.Owner, template.Repo,
-		template.WorkflowID, template.Ref, string(inputsJSON), template.CreatedAt, template.UpdatedAt)
+		template.WorkflowID, template.Ref, string(inputsJSON), string(labelsJSON), template.CreatedAt, template.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("inserting job_template: %w", err)
@@ -338,13 +349,13 @@ func (s *PostgresStore) CreateJobTemplate(ctx context.Context, template *JobTemp
 func (s *PostgresStore) GetJobTemplate(ctx context.Context, id string) (*JobTemplate, error) {
 	var template JobTemplate
 
-	var inputsJSON sql.NullString
+	var inputsJSON, labelsJSON sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, created_at, updated_at
+		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, created_at, updated_at
 		FROM job_templates WHERE id = $1
 	`, id).Scan(&template.ID, &template.GroupID, &template.Name, &template.Owner,
-		&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON,
+		&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON, &labelsJSON,
 		&template.CreatedAt, &template.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -361,13 +372,19 @@ func (s *PostgresStore) GetJobTemplate(ctx context.Context, id string) (*JobTemp
 		}
 	}
 
+	if labelsJSON.Valid && labelsJSON.String != "" {
+		if err := json.Unmarshal([]byte(labelsJSON.String), &template.Labels); err != nil {
+			return nil, fmt.Errorf("unmarshaling labels: %w", err)
+		}
+	}
+
 	return &template, nil
 }
 
 // ListJobTemplatesByGroup retrieves all job templates for a group.
 func (s *PostgresStore) ListJobTemplatesByGroup(ctx context.Context, groupID string) ([]*JobTemplate, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, created_at, updated_at
+		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, created_at, updated_at
 		FROM job_templates WHERE group_id = $1 ORDER BY name
 	`, groupID)
 	if err != nil {
@@ -381,10 +398,10 @@ func (s *PostgresStore) ListJobTemplatesByGroup(ctx context.Context, groupID str
 	for rows.Next() {
 		var template JobTemplate
 
-		var inputsJSON sql.NullString
+		var inputsJSON, labelsJSON sql.NullString
 
 		if err := rows.Scan(&template.ID, &template.GroupID, &template.Name, &template.Owner,
-			&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON,
+			&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON, &labelsJSON,
 			&template.CreatedAt, &template.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning job_template: %w", err)
 		}
@@ -392,6 +409,12 @@ func (s *PostgresStore) ListJobTemplatesByGroup(ctx context.Context, groupID str
 		if inputsJSON.Valid && inputsJSON.String != "" {
 			if err := json.Unmarshal([]byte(inputsJSON.String), &template.DefaultInputs); err != nil {
 				return nil, fmt.Errorf("unmarshaling default_inputs: %w", err)
+			}
+		}
+
+		if labelsJSON.Valid && labelsJSON.String != "" {
+			if err := json.Unmarshal([]byte(labelsJSON.String), &template.Labels); err != nil {
+				return nil, fmt.Errorf("unmarshaling labels: %w", err)
 			}
 		}
 
@@ -408,13 +431,18 @@ func (s *PostgresStore) UpdateJobTemplate(ctx context.Context, template *JobTemp
 		return fmt.Errorf("marshaling default_inputs: %w", err)
 	}
 
+	labelsJSON, err := json.Marshal(template.Labels)
+	if err != nil {
+		return fmt.Errorf("marshaling labels: %w", err)
+	}
+
 	template.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE job_templates SET name = $1, owner = $2, repo = $3, workflow_id = $4, ref = $5, default_inputs = $6, updated_at = $7
-		WHERE id = $8
+		UPDATE job_templates SET name = $1, owner = $2, repo = $3, workflow_id = $4, ref = $5, default_inputs = $6, labels = $7, updated_at = $8
+		WHERE id = $9
 	`, template.Name, template.Owner, template.Repo, template.WorkflowID, template.Ref,
-		string(inputsJSON), template.UpdatedAt, template.ID)
+		string(inputsJSON), string(labelsJSON), template.UpdatedAt, template.ID)
 
 	if err != nil {
 		return fmt.Errorf("updating job_template: %w", err)

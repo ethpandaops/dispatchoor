@@ -23,6 +23,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuthStore } from '../stores/authStore';
 import { JobCard } from '../components/jobs/JobCard';
 import { AddJobDialog } from '../components/jobs/AddJobDialog';
+import { LabelsDisplay } from '../components/common/LabelBadge';
 import type { Job, JobTemplate, Runner } from '../types';
 
 function SortableJobCard({ job, template }: { job: Job; template?: JobTemplate }) {
@@ -124,6 +125,8 @@ export function GroupPage() {
     });
   };
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [labelFilters, setLabelFilters] = useState<Record<string, string>>({});
+  const [showUnlabeled, setShowUnlabeled] = useState(false);
   const { subscribe, unsubscribe } = useWebSocket();
 
   const toggleGroupExpanded = (templateId: string) => {
@@ -220,6 +223,68 @@ export function GroupPage() {
   });
 
   const getTemplateForJob = (job: Job) => templates.find((t) => t.id === job.template_id);
+
+  // Extract unique labels from all templates
+  const availableLabels = useMemo(() => {
+    const labelsMap = new Map<string, Set<string>>();
+    for (const template of templates) {
+      if (template.labels) {
+        for (const [key, value] of Object.entries(template.labels)) {
+          if (!labelsMap.has(key)) {
+            labelsMap.set(key, new Set());
+          }
+          labelsMap.get(key)!.add(value);
+        }
+      }
+    }
+    // Convert to array of { key, values } for rendering
+    return Array.from(labelsMap.entries()).map(([key, values]) => ({
+      key,
+      values: Array.from(values).sort(),
+    }));
+  }, [templates]);
+
+  // Count unlabeled templates
+  const unlabeledCount = useMemo(() => {
+    return templates.filter((t) => !t.labels || Object.keys(t.labels).length === 0).length;
+  }, [templates]);
+
+  // Filter templates based on selected labels (AND logic) or unlabeled filter
+  const filteredTemplates = useMemo(() => {
+    if (showUnlabeled) {
+      return templates.filter((t) => !t.labels || Object.keys(t.labels).length === 0);
+    }
+    if (Object.keys(labelFilters).length === 0) return templates;
+    return templates.filter((t) => {
+      if (!t.labels) return false;
+      return Object.entries(labelFilters).every(
+        ([key, value]) => t.labels?.[key] === value
+      );
+    });
+  }, [templates, labelFilters, showUnlabeled]);
+
+  const toggleLabelFilter = (key: string, value: string) => {
+    setShowUnlabeled(false);
+    setLabelFilters((prev) => {
+      const next = { ...prev };
+      if (next[key] === value) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
+      return next;
+    });
+  };
+
+  const toggleUnlabeled = () => {
+    setLabelFilters({});
+    setShowUnlabeled((prev) => !prev);
+  };
+
+  const clearLabelFilters = () => {
+    setLabelFilters({});
+    setShowUnlabeled(false);
+  };
 
   // Group history jobs by template for grouped view
   const groupedHistory = useMemo(() => {
@@ -509,10 +574,71 @@ export function GroupPage() {
               )}
             </div>
           ) : (
-            <div className="space-y-3">
-              {templates.length > 0 ? (
+            <div className="space-y-4">
+              {/* Label filters */}
+              {(availableLabels.length > 0 || unlabeledCount > 0) && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-zinc-400">Filter by labels</span>
+                    {(Object.keys(labelFilters).length > 0 || showUnlabeled) && (
+                      <button
+                        onClick={clearLabelFilters}
+                        className="text-xs text-zinc-500 hover:text-zinc-300"
+                      >
+                        Clear filters
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    {availableLabels.map(({ key, values }) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <span className="w-20 shrink-0 text-xs text-zinc-500">{key}</span>
+                        <div className="flex flex-wrap gap-1">
+                          {values.map((value) => (
+                            <button
+                              key={value}
+                              onClick={() => toggleLabelFilter(key, value)}
+                              className={`rounded-xs px-2 py-0.5 text-xs transition-colors ${
+                                labelFilters[key] === value
+                                  ? 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-500/50'
+                                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
+                              }`}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {unlabeledCount > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="w-20 shrink-0 text-xs text-zinc-500">other</span>
+                        <button
+                          onClick={toggleUnlabeled}
+                          className={`rounded-xs px-2 py-0.5 text-xs transition-colors ${
+                            showUnlabeled
+                              ? 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-500/50'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
+                          }`}
+                        >
+                          unlabeled ({unlabeledCount})
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Template count with filter indicator */}
+              {(Object.keys(labelFilters).length > 0 || showUnlabeled) && (
+                <div className="text-xs text-zinc-500">
+                  Showing {filteredTemplates.length} of {templates.length} templates
+                </div>
+              )}
+
+              {filteredTemplates.length > 0 ? (
                 <div className="grid gap-3">
-                  {templates.map((template) => (
+                  {filteredTemplates.map((template) => (
                     <div
                       key={template.id}
                       className="rounded-sm border border-zinc-800 bg-zinc-900 p-4"
@@ -522,6 +648,12 @@ export function GroupPage() {
                           <h4 className="text-sm font-medium text-zinc-200">
                             {template.name}
                           </h4>
+                          {/* Template labels */}
+                          {template.labels && Object.keys(template.labels).length > 0 && (
+                            <div className="mt-1.5">
+                              <LabelsDisplay labels={template.labels} maxDisplay={0} />
+                            </div>
+                          )}
                           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
                             <a
                               href={`https://github.com/${template.owner}/${template.repo}`}
@@ -591,6 +723,10 @@ export function GroupPage() {
                       )}
                     </div>
                   ))}
+                </div>
+              ) : templates.length > 0 ? (
+                <div className="rounded-sm border border-dashed border-zinc-800 py-8 text-center text-zinc-500">
+                  No templates match the selected filters
                 </div>
               ) : (
                 <div className="rounded-sm border border-dashed border-zinc-800 py-8 text-center text-zinc-500">

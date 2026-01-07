@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Job, JobTemplate } from '../../types';
 import { api } from '../../api/client';
 import { useAuthStore } from '../../stores/authStore';
+import { LabelsDisplay } from '../common/LabelBadge';
 
 interface JobCardProps {
   job: Job;
@@ -208,6 +209,13 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
           <h4 className="text-sm font-medium text-zinc-200 truncate">
             {template?.name || job.template_id}
           </h4>
+
+          {/* Labels */}
+          {template?.labels && Object.keys(template.labels).length > 0 && (
+            <div className="mt-1">
+              <LabelsDisplay labels={template.labels} maxDisplay={3} />
+            </div>
+          )}
 
           {/* Error message */}
           {job.error_message && (

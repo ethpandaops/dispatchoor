@@ -93,6 +93,7 @@ type JobTemplate struct {
 	WorkflowID    string            `json:"workflow_id"`
 	Ref           string            `json:"ref"`
 	DefaultInputs map[string]string `json:"default_inputs"`
+	Labels        map[string]string `json:"labels"`
 	CreatedAt     time.Time         `json:"created_at"`
 	UpdatedAt     time.Time         `json:"updated_at"`
 }

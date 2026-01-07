@@ -1032,6 +1032,7 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 				WorkflowID:    tmplCfg.WorkflowID,
 				Ref:           tmplCfg.Ref,
 				DefaultInputs: tmplCfg.Inputs,
+				Labels:        tmplCfg.Labels,
 				CreatedAt:     now,
 				UpdatedAt:     now,
 			}

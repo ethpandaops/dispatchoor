@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { JobTemplate } from '../../types';
 import { api } from '../../api/client';
+import { LabelsDisplay } from '../common/LabelBadge';
 
 interface AddJobDialogProps {
   groupId: string;
@@ -22,10 +23,19 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
 
-  // Filter templates by search query
-  const filteredTemplates = templates.filter((t) =>
-    t.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter templates by search query (searches name and labels)
+  const filteredTemplates = templates.filter((t) => {
+    const query = searchQuery.toLowerCase();
+    if (t.name.toLowerCase().includes(query)) return true;
+    if (t.labels) {
+      for (const [key, value] of Object.entries(t.labels)) {
+        if (key.toLowerCase().includes(query) || value.toLowerCase().includes(query)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  });
 
   useEffect(() => {
     if (selectedTemplate) {
@@ -149,8 +159,13 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
                     }`}
                   >
                     <div className="font-medium">{template.name}</div>
-                    <div className="text-xs text-zinc-500">
-                      {template.owner}/{template.repo}
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-zinc-500">
+                        {template.owner}/{template.repo}
+                      </span>
+                      {template.labels && Object.keys(template.labels).length > 0 && (
+                        <LabelsDisplay labels={template.labels} maxDisplay={3} />
+                      )}
                     </div>
                   </button>
                 ))
@@ -166,19 +181,24 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
           {selectedTemplate && (
             <div className="rounded-sm bg-zinc-800/50 p-3 text-sm">
               <div className="flex items-center gap-2 text-zinc-400">
-                <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
+                <svg className="size-4 shrink-0" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
                 </svg>
                 <span>{selectedTemplate.owner}/{selectedTemplate.repo}</span>
               </div>
               <div className="flex items-center gap-2 text-zinc-400 mt-1">
-                <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                 </svg>
                 <span>{selectedTemplate.workflow_id}</span>
                 <span className="text-zinc-600">@</span>
                 <span>{selectedTemplate.ref}</span>
               </div>
+              {selectedTemplate.labels && Object.keys(selectedTemplate.labels).length > 0 && (
+                <div className="mt-2">
+                  <LabelsDisplay labels={selectedTemplate.labels} maxDisplay={0} />
+                </div>
+              )}
             </div>
           )}
 

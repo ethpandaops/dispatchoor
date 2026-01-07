@@ -5,6 +5,10 @@
   repo: syncoor-tests
   workflow_id: syncoor.yaml
   ref: master
+  labels:
+    network: hoodi
+    el-client: nethermind
+    cl-client: lighthouse
   inputs:
     run-timeout-minutes: "1380"
     el-client: '"nethermind"'
@@ -32,6 +36,10 @@
   repo: syncoor-tests
   workflow_id: syncoor.yaml
   ref: master
+  labels:
+    network: hoodi
+    el-client: nethermind
+    cl-client: teku
   inputs:
     run-timeout-minutes: "1380"
     el-client: '"nethermind"'
@@ -59,6 +67,10 @@
   repo: syncoor-tests
   workflow_id: syncoor.yaml
   ref: master
+  labels:
+    network: hoodi
+    el-client: nethermind
+    cl-client: prysm
   inputs:
     run-timeout-minutes: "1380"
     el-client: '"nethermind"'
@@ -86,6 +98,10 @@
   repo: syncoor-tests
   workflow_id: syncoor.yaml
   ref: master
+  labels:
+    network: hoodi
+    el-client: nethermind
+    cl-client: nimbus
   inputs:
     run-timeout-minutes: "1380"
     el-client: '"nethermind"'
@@ -113,6 +129,10 @@
   repo: syncoor-tests
   workflow_id: syncoor.yaml
   ref: master
+  labels:
+    network: hoodi
+    el-client: nethermind
+    cl-client: lodestar
   inputs:
     run-timeout-minutes: "1380"
     el-client: '"nethermind"'
@@ -140,6 +160,10 @@
   repo: syncoor-tests
   workflow_id: syncoor.yaml
   ref: master
+  labels:
+    network: hoodi
+    el-client: nethermind
+    cl-client: grandine
   inputs:
     run-timeout-minutes: "1380"
     el-client: '"nethermind"'
