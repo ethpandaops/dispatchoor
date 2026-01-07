@@ -26,6 +26,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
   const isAdmin = user?.role === 'admin';
   const [showStopRequeueConfirm, setShowStopRequeueConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteJob(job.id),
@@ -60,6 +61,15 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
     mutationFn: () => api.updateAutoRequeue(job.id, !job.auto_requeue, job.requeue_limit),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['queue', job.group_id] });
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: () => api.cancelJob(job.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['queue', job.group_id] });
+      queryClient.invalidateQueries({ queryKey: ['history', job.group_id] });
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
     },
   });
 
@@ -105,6 +115,23 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [showDeleteConfirm, deleteMutation]);
+
+  // Keyboard shortcuts for cancel confirmation modal
+  useEffect(() => {
+    if (!showCancelConfirm) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowCancelConfirm(false);
+      } else if (e.key === 'Enter' && !cancelMutation.isPending) {
+        cancelMutation.mutate();
+        setShowCancelConfirm(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showCancelConfirm, cancelMutation]);
 
   const colors = statusColors[job.status] || statusColors.pending;
 
@@ -192,6 +219,19 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
 
         {/* Actions */}
         <div className="flex items-center gap-1">
+          {/* Cancel button for running/triggered jobs */}
+          {isAdmin && (job.status === 'triggered' || job.status === 'running') && (
+            <button
+              onClick={() => setShowCancelConfirm(true)}
+              disabled={cancelMutation.isPending}
+              className="rounded-sm p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+              title="Cancel workflow"
+            >
+              <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6 6h12v12H6z"/>
+              </svg>
+            </button>
+          )}
           {/* Auto-requeue toggle for running/triggered jobs - appears before GitHub link */}
           {isAdmin && (job.status === 'triggered' || job.status === 'running') && (
             <button
@@ -442,6 +482,56 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
                   className="rounded-sm bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
                 >
                   {deleteMutation.isPending ? 'Removing...' : 'Remove'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel workflow confirmation modal */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setShowCancelConfirm(false)} />
+          <div className="relative w-full max-w-sm mx-4 rounded-sm border border-zinc-800 bg-zinc-900 shadow-xl">
+            <div className="p-4">
+              <h3 className="text-lg font-semibold text-zinc-100 mb-2">Cancel Workflow?</h3>
+              <div className="mb-3 rounded-sm bg-zinc-800 p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${colors.bg} ${colors.text}`}>
+                    <span className={`size-1.5 rounded-full ${colors.dot}`} />
+                    {job.status}
+                  </span>
+                  <span className="text-xs text-zinc-500">#{job.position}</span>
+                </div>
+                <p className="text-sm font-medium text-zinc-200 truncate">
+                  {template?.name || job.template_id}
+                </p>
+                {job.runner_name && (
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Running on: {job.runner_name}
+                  </p>
+                )}
+              </div>
+              <p className="text-sm text-zinc-400 mb-4">
+                This will cancel the workflow run on GitHub. The job will be marked as cancelled.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  className="rounded-sm px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                >
+                  Keep Running
+                </button>
+                <button
+                  onClick={() => {
+                    cancelMutation.mutate();
+                    setShowCancelConfirm(false);
+                  }}
+                  disabled={cancelMutation.isPending}
+                  className="rounded-sm bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {cancelMutation.isPending ? 'Cancelling...' : 'Cancel Workflow'}
                 </button>
               </div>
             </div>

@@ -174,6 +174,10 @@ class ApiClient {
     return this.request<Job>(`/jobs/${id}/unpause`, { method: 'POST' });
   }
 
+  async cancelJob(id: string): Promise<Job> {
+    return this.request<Job>(`/jobs/${id}/cancel`, { method: 'POST' });
+  }
+
   async disableAutoRequeue(id: string): Promise<Job> {
     return this.request<Job>(`/jobs/${id}/disable-requeue`, { method: 'POST' });
   }

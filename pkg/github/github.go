@@ -30,6 +30,7 @@ type Client interface {
 	GetWorkflowRun(ctx context.Context, owner, repo string, runID int64) (*WorkflowRun, error)
 	ListWorkflowRuns(ctx context.Context, owner, repo, workflowID string, opts ListWorkflowRunsOpts) ([]*WorkflowRun, error)
 	ListWorkflowRunJobs(ctx context.Context, owner, repo string, runID int64) ([]*WorkflowJob, error)
+	CancelWorkflowRun(ctx context.Context, owner, repo string, runID int64) error
 
 	// Rate limiting.
 	RateLimitRemaining() int
@@ -451,4 +452,28 @@ func (c *client) ListWorkflowRunJobs(ctx context.Context, owner, repo string, ru
 	}).Debug("Listed workflow run jobs")
 
 	return allJobs, nil
+}
+
+// CancelWorkflowRun cancels a workflow run.
+func (c *client) CancelWorkflowRun(ctx context.Context, owner, repo string, runID int64) error {
+	c.log.WithFields(logrus.Fields{
+		"owner":  owner,
+		"repo":   repo,
+		"run_id": runID,
+	}).Info("Cancelling workflow run")
+
+	resp, err := c.gh.Actions.CancelWorkflowRunByID(ctx, owner, repo, runID)
+	if err != nil {
+		return fmt.Errorf("cancelling workflow run: %w", err)
+	}
+
+	c.updateRateLimit(resp)
+
+	c.log.WithFields(logrus.Fields{
+		"owner":  owner,
+		"repo":   repo,
+		"run_id": runID,
+	}).Info("Workflow run cancelled successfully")
+
+	return nil
 }

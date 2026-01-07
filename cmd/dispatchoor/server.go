@@ -126,7 +126,7 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	defer authSvc.Stop()
 
 	// Create and start API server.
-	srv := api.NewServer(log, cfg, st, queueSvc, authSvc, m)
+	srv := api.NewServer(log, cfg, st, queueSvc, authSvc, ghClient, m)
 
 	// Set up runner change callbacks to broadcast via WebSocket.
 	poller.SetRunnerChangeCallback(func(runner *store.Runner) {
