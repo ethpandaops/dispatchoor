@@ -162,6 +162,20 @@ func (d *dispatcher) dispatch(ctx context.Context) error {
 func (d *dispatcher) dispatchForGroup(ctx context.Context, group *store.Group) error {
 	log := d.log.WithField("group", group.ID)
 
+	// Check if there are already triggered jobs waiting to start.
+	// We should wait for them to move to "running" before dispatching new ones.
+	triggeredJobs, err := d.queue.ListByStatus(ctx, group.ID, store.JobStatusTriggered)
+	if err != nil {
+		return fmt.Errorf("listing triggered jobs: %w", err)
+	}
+
+	if len(triggeredJobs) > 0 {
+		log.WithField("triggered_count", len(triggeredJobs)).
+			Debug("Waiting for triggered jobs to start before dispatching new ones")
+
+		return nil
+	}
+
 	// Get the next pending job.
 	job, err := d.queue.Peek(ctx, group.ID)
 	if err != nil {
