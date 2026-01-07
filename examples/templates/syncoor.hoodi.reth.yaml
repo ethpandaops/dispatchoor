@@ -6,7 +6,7 @@
   workflow_id: syncoor.yaml
   ref: master
   inputs:
-    run-timeout-minutes: "1380"
+    run-timeout-minutes: "1080"
     el-client: '"reth"'
     cl-client: '"lighthouse"'
     config: >-
@@ -33,7 +33,7 @@
   workflow_id: syncoor.yaml
   ref: master
   inputs:
-    run-timeout-minutes: "1380"
+    run-timeout-minutes: "1080"
     el-client: '"reth"'
     cl-client: '"teku"'
     config: >-
@@ -60,7 +60,7 @@
   workflow_id: syncoor.yaml
   ref: master
   inputs:
-    run-timeout-minutes: "1380"
+    run-timeout-minutes: "1080"
     el-client: '"reth"'
     cl-client: '"prysm"'
     config: >-
@@ -87,7 +87,7 @@
   workflow_id: syncoor.yaml
   ref: master
   inputs:
-    run-timeout-minutes: "1380"
+    run-timeout-minutes: "1080"
     el-client: '"reth"'
     cl-client: '"nimbus"'
     config: >-
@@ -114,7 +114,7 @@
   workflow_id: syncoor.yaml
   ref: master
   inputs:
-    run-timeout-minutes: "1380"
+    run-timeout-minutes: "1080"
     el-client: '"reth"'
     cl-client: '"lodestar"'
     config: >-
@@ -141,7 +141,7 @@
   workflow_id: syncoor.yaml
   ref: master
   inputs:
-    run-timeout-minutes: "1380"
+    run-timeout-minutes: "1080"
     el-client: '"reth"'
     cl-client: '"grandine"'
     config: >-
