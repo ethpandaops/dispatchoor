@@ -198,9 +198,55 @@ export function GroupPage() {
   const hasActiveHistoryFilters = historyFilters.statuses.length > 0 || Object.keys(historyFilters.labels).length > 0;
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const [labelFilters, setLabelFilters] = useState<Record<string, string>>({});
-  const [showUnlabeled, setShowUnlabeled] = useState(false);
   const { subscribe, unsubscribe } = useWebSocket();
+
+  // Template filter state from URL
+  type TemplateStatusFilter = 'unlabeled' | 'auto-requeue' | 'no-auto-requeue';
+  const validTemplateStatusFilters: TemplateStatusFilter[] = ['unlabeled', 'auto-requeue', 'no-auto-requeue'];
+
+  const getTemplateFiltersFromURL = () => {
+    const statusParam = searchParams.get('tstatus');
+    const status = validTemplateStatusFilters.includes(statusParam as TemplateStatusFilter)
+      ? (statusParam as TemplateStatusFilter)
+      : null;
+
+    const labels: Record<string, string> = {};
+    searchParams.forEach((value, key) => {
+      if (key.startsWith('tlabel.')) {
+        labels[key.replace('tlabel.', '')] = value;
+      }
+    });
+
+    return { status, labels };
+  };
+
+  const templateFilters = getTemplateFiltersFromURL();
+  const labelFilters = templateFilters.labels;
+  const showUnlabeled = templateFilters.status === 'unlabeled';
+  const showAutoRequeue = templateFilters.status === 'auto-requeue';
+  const showNoAutoRequeue = templateFilters.status === 'no-auto-requeue';
+
+  const updateTemplateFilters = (newFilters: { status: TemplateStatusFilter | null; labels: Record<string, string> }) => {
+    setSearchParams((prev) => {
+      // Clear existing template filter params
+      const keysToDelete = Array.from(prev.keys()).filter(
+        k => k === 'tstatus' || k.startsWith('tlabel.')
+      );
+      keysToDelete.forEach(k => prev.delete(k));
+
+      // Set new status filter
+      if (newFilters.status) {
+        prev.set('tstatus', newFilters.status);
+      }
+
+      // Set new label filters
+      for (const [key, value] of Object.entries(newFilters.labels)) {
+        prev.set(`tlabel.${key}`, value);
+      }
+
+      return prev;
+    });
+  };
 
   const toggleGroupExpanded = (templateId: string) => {
     setExpandedGroups((prev) => {
@@ -328,8 +374,25 @@ export function GroupPage() {
     return templates.filter((t) => !t.labels || Object.keys(t.labels).length === 0).length;
   }, [templates]);
 
-  // Filter templates based on selected labels (AND logic) or unlabeled filter
+  // Compute set of template IDs that have active auto-requeue jobs
+  const autoRequeueTemplateIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const job of queue) {
+      if (job.auto_requeue) {
+        ids.add(job.template_id);
+      }
+    }
+    return ids;
+  }, [queue]);
+
+  // Filter templates based on selected labels (AND logic), unlabeled, or auto-requeue filter
   const filteredTemplates = useMemo(() => {
+    if (showAutoRequeue) {
+      return templates.filter((t) => autoRequeueTemplateIds.has(t.id));
+    }
+    if (showNoAutoRequeue) {
+      return templates.filter((t) => !autoRequeueTemplateIds.has(t.id));
+    }
     if (showUnlabeled) {
       return templates.filter((t) => !t.labels || Object.keys(t.labels).length === 0);
     }
@@ -340,29 +403,32 @@ export function GroupPage() {
         ([key, value]) => t.labels?.[key] === value
       );
     });
-  }, [templates, labelFilters, showUnlabeled]);
+  }, [templates, labelFilters, showUnlabeled, showAutoRequeue, showNoAutoRequeue, autoRequeueTemplateIds]);
 
   const toggleLabelFilter = (key: string, value: string) => {
-    setShowUnlabeled(false);
-    setLabelFilters((prev) => {
-      const next = { ...prev };
-      if (next[key] === value) {
-        delete next[key];
-      } else {
-        next[key] = value;
-      }
-      return next;
-    });
+    const newLabels = { ...labelFilters };
+    if (newLabels[key] === value) {
+      delete newLabels[key];
+    } else {
+      newLabels[key] = value;
+    }
+    updateTemplateFilters({ status: null, labels: newLabels });
   };
 
   const toggleUnlabeled = () => {
-    setLabelFilters({});
-    setShowUnlabeled((prev) => !prev);
+    updateTemplateFilters({ status: showUnlabeled ? null : 'unlabeled', labels: {} });
+  };
+
+  const toggleAutoRequeue = () => {
+    updateTemplateFilters({ status: showAutoRequeue ? null : 'auto-requeue', labels: {} });
+  };
+
+  const toggleNoAutoRequeue = () => {
+    updateTemplateFilters({ status: showNoAutoRequeue ? null : 'no-auto-requeue', labels: {} });
   };
 
   const clearLabelFilters = () => {
-    setLabelFilters({});
-    setShowUnlabeled(false);
+    updateTemplateFilters({ status: null, labels: {} });
   };
 
   // Group history jobs by template for grouped view
@@ -734,7 +800,7 @@ export function GroupPage() {
                         onClick={clearLabelFilters}
                         className="text-xs text-zinc-500 hover:text-zinc-300"
                       >
-                        Clear filters
+                        Clear
                       </button>
                     )}
                   </div>
@@ -778,8 +844,52 @@ export function GroupPage() {
                 </div>
               )}
 
+              {/* Auto-requeue filter */}
+              {autoRequeueTemplateIds.size > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-zinc-400">Filter by status</span>
+                    {(showAutoRequeue || showNoAutoRequeue) && (
+                      <button
+                        onClick={() => updateTemplateFilters({ status: null, labels: labelFilters })}
+                        className="text-xs text-zinc-500 hover:text-zinc-300"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <button
+                      onClick={toggleAutoRequeue}
+                      className={`rounded-xs px-2 py-0.5 text-xs transition-colors ${
+                        showAutoRequeue
+                          ? 'bg-purple-500/30 text-purple-300 ring-1 ring-purple-500/50'
+                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">
+                        <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        auto-requeue ({autoRequeueTemplateIds.size})
+                      </span>
+                    </button>
+                    <button
+                      onClick={toggleNoAutoRequeue}
+                      className={`rounded-xs px-2 py-0.5 text-xs transition-colors ${
+                        showNoAutoRequeue
+                          ? 'bg-zinc-500/30 text-zinc-300 ring-1 ring-zinc-500/50'
+                          : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
+                      }`}
+                    >
+                      no auto-requeue ({templates.length - autoRequeueTemplateIds.size})
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Template count with filter indicator */}
-              {(Object.keys(labelFilters).length > 0 || showUnlabeled) && (
+              {(Object.keys(labelFilters).length > 0 || showUnlabeled || showAutoRequeue || showNoAutoRequeue) && (
                 <div className="text-xs text-zinc-500">
                   Showing {filteredTemplates.length} of {templates.length} templates
                 </div>
@@ -841,17 +951,27 @@ export function GroupPage() {
                             </a>
                           </div>
                         </div>
-                        {isAdmin && template.in_config && (
-                          <button
-                            onClick={() => {
-                              setPreselectedTemplateId(template.id);
-                              setShowAddDialog(true);
-                            }}
-                            className="shrink-0 rounded-sm bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                          >
-                            Add to Queue
-                          </button>
-                        )}
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          {autoRequeueTemplateIds.has(template.id) && (
+                            <span className="inline-flex items-center gap-1 rounded-sm bg-purple-500/20 px-1.5 py-0.5 text-xs text-purple-400">
+                              <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                              Auto-requeue enabled
+                            </span>
+                          )}
+                          {isAdmin && template.in_config && (
+                            <button
+                              onClick={() => {
+                                setPreselectedTemplateId(template.id);
+                                setShowAddDialog(true);
+                              }}
+                              className="rounded-sm bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                            >
+                              Add to Queue
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {/* Workflow Inputs */}
                       {template.default_inputs && Object.keys(template.default_inputs).length > 0 && (
@@ -962,6 +1082,7 @@ export function GroupPage() {
           setPreselectedTemplateId(undefined);
         }}
         preselectedTemplateId={preselectedTemplateId}
+        autoRequeueTemplateIds={autoRequeueTemplateIds}
       />
     </div>
   );

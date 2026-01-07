@@ -10,18 +10,26 @@ interface AddJobDialogProps {
   isOpen: boolean;
   onClose: () => void;
   preselectedTemplateId?: string;
+  autoRequeueTemplateIds?: Set<string>;
 }
 
-export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedTemplateId }: AddJobDialogProps) {
+export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedTemplateId, autoRequeueTemplateIds }: AddJobDialogProps) {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [autoRequeue, setAutoRequeue] = useState(false);
   const [hasRequeueLimit, setHasRequeueLimit] = useState(false);
   const [requeueLimit, setRequeueLimit] = useState(5);
+  const [confirmedDuplicate, setConfirmedDuplicate] = useState(false);
   const queryClient = useQueryClient();
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
+  const hasExistingAutoRequeue = autoRequeueTemplateIds?.has(selectedTemplateId) ?? false;
+
+  // Reset confirmation when template changes
+  useEffect(() => {
+    setConfirmedDuplicate(false);
+  }, [selectedTemplateId]);
 
   // Filter templates by search query (searches name and labels)
   const filteredTemplates = templates.filter((t) => {
@@ -75,6 +83,7 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
       setAutoRequeue(false);
       setHasRequeueLimit(false);
       setRequeueLimit(5);
+      setConfirmedDuplicate(false);
     },
   });
 
@@ -273,6 +282,32 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
             )}
           </div>
 
+          {/* Warning for existing auto-requeue job */}
+          {hasExistingAutoRequeue && (
+            <div className="rounded-sm bg-amber-500/10 border border-amber-500/20 p-3 space-y-2">
+              <div className="flex items-start gap-2">
+                <svg className="size-5 shrink-0 text-amber-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-medium text-amber-400">Auto-requeue job already exists</p>
+                  <p className="text-xs text-amber-400/80 mt-0.5">
+                    This template already has an active auto-requeue job in the queue. Adding another job may result in duplicate runs.
+                  </p>
+                </div>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer ml-7">
+                <input
+                  type="checkbox"
+                  checked={confirmedDuplicate}
+                  onChange={(e) => setConfirmedDuplicate(e.target.checked)}
+                  className="size-4 rounded-sm border-amber-600 bg-zinc-800 text-amber-500 focus:ring-amber-500 focus:ring-offset-zinc-900"
+                />
+                <span className="text-sm text-amber-300">I understand, add anyway</span>
+              </label>
+            </div>
+          )}
+
           {createMutation.error && (
             <div className="rounded-sm bg-red-500/10 border border-red-500/20 px-3 py-2 text-sm text-red-400">
               {createMutation.error instanceof Error ? createMutation.error.message : 'Failed to create job'}
@@ -290,7 +325,7 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
           </button>
           <button
             onClick={() => createMutation.mutate()}
-            disabled={!selectedTemplateId || createMutation.isPending}
+            disabled={!selectedTemplateId || createMutation.isPending || (hasExistingAutoRequeue && !confirmedDuplicate)}
             className="rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-blue-600/50 disabled:cursor-not-allowed"
           >
             {createMutation.isPending ? 'Adding...' : 'Add to Queue'}
