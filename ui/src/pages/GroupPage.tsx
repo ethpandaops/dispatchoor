@@ -1258,49 +1258,6 @@ export function GroupPage() {
                 Predefined job templates provided via configuration. Select templates to add them to the queue.
               </p>
 
-              {/* Selection header for templates */}
-              {isAdmin && filteredTemplates.filter((t) => t.in_config).length > 0 && (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {templateSelectionMode && (
-                      <>
-                        <button
-                          onClick={() => setSelectedTemplateIds(new Set(filteredTemplates.filter((t) => t.in_config).map((t) => t.id)))}
-                          className="text-xs text-zinc-400 hover:text-zinc-200"
-                        >
-                          Select all
-                        </button>
-                        <span className="text-zinc-600">|</span>
-                        <button
-                          onClick={() => setSelectedTemplateIds(new Set())}
-                          className="text-xs text-zinc-400 hover:text-zinc-200"
-                        >
-                          Deselect all
-                        </button>
-                        {selectedTemplateIds.size > 0 && (
-                          <span className="text-xs text-zinc-500">
-                            ({selectedTemplateIds.size} selected)
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => {
-                      setTemplateSelectionMode(!templateSelectionMode);
-                      setSelectedTemplateIds(new Set());
-                    }}
-                    className={`rounded-sm px-2 py-1 text-xs ${
-                      templateSelectionMode
-                        ? 'bg-zinc-700 text-zinc-200'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    {templateSelectionMode ? 'Cancel' : 'Select'}
-                  </button>
-                </div>
-              )}
-
               {/* Label filters */}
               {(availableLabels.length > 0 || unlabeledCount > 0) && (
                 <div className="space-y-2">
@@ -1403,6 +1360,49 @@ export function GroupPage() {
               {(Object.keys(labelFilters).length > 0 || showUnlabeled || showAutoRequeue || showNoAutoRequeue) && (
                 <div className="text-xs text-zinc-500">
                   Showing {filteredTemplates.length} of {templates.length} templates
+                </div>
+              )}
+
+              {/* Selection header for templates */}
+              {isAdmin && filteredTemplates.filter((t) => t.in_config).length > 0 && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {templateSelectionMode && (
+                      <>
+                        <button
+                          onClick={() => setSelectedTemplateIds(new Set(filteredTemplates.filter((t) => t.in_config).map((t) => t.id)))}
+                          className="text-xs text-zinc-400 hover:text-zinc-200"
+                        >
+                          Select all
+                        </button>
+                        <span className="text-zinc-600">|</span>
+                        <button
+                          onClick={() => setSelectedTemplateIds(new Set())}
+                          className="text-xs text-zinc-400 hover:text-zinc-200"
+                        >
+                          Deselect all
+                        </button>
+                        {selectedTemplateIds.size > 0 && (
+                          <span className="text-xs text-zinc-500">
+                            ({selectedTemplateIds.size} selected)
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setTemplateSelectionMode(!templateSelectionMode);
+                      setSelectedTemplateIds(new Set());
+                    }}
+                    className={`rounded-sm px-2 py-1 text-xs ${
+                      templateSelectionMode
+                        ? 'bg-zinc-700 text-zinc-200'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {templateSelectionMode ? 'Cancel' : 'Select'}
+                  </button>
                 </div>
               )}
 
