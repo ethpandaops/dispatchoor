@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethpandaops/dispatchoor/pkg/auth"
 	"github.com/ethpandaops/dispatchoor/pkg/config"
+	"github.com/ethpandaops/dispatchoor/pkg/github"
 	"github.com/ethpandaops/dispatchoor/pkg/metrics"
 	"github.com/ethpandaops/dispatchoor/pkg/queue"
 	"github.com/ethpandaops/dispatchoor/pkg/store"
@@ -28,32 +29,34 @@ type Server interface {
 
 // server implements Server.
 type server struct {
-	log     logrus.FieldLogger
-	cfg     *config.Config
-	store   store.Store
-	queue   queue.Service
-	auth    auth.Service
-	metrics *metrics.Metrics
-	hub     *Hub
-	srv     *http.Server
-	router  chi.Router
+	log      logrus.FieldLogger
+	cfg      *config.Config
+	store    store.Store
+	queue    queue.Service
+	auth     auth.Service
+	ghClient github.Client
+	metrics  *metrics.Metrics
+	hub      *Hub
+	srv      *http.Server
+	router   chi.Router
 }
 
 // Ensure server implements Server.
 var _ Server = (*server)(nil)
 
 // NewServer creates a new API server.
-func NewServer(log logrus.FieldLogger, cfg *config.Config, st store.Store, q queue.Service, authSvc auth.Service, m *metrics.Metrics) Server {
+func NewServer(log logrus.FieldLogger, cfg *config.Config, st store.Store, q queue.Service, authSvc auth.Service, ghClient github.Client, m *metrics.Metrics) Server {
 	hub := NewHub(log)
 
 	s := &server{
-		log:     log.WithField("component", "api"),
-		cfg:     cfg,
-		store:   st,
-		queue:   q,
-		auth:    authSvc,
-		metrics: m,
-		hub:     hub,
+		log:      log.WithField("component", "api"),
+		cfg:      cfg,
+		store:    st,
+		queue:    q,
+		auth:     authSvc,
+		ghClient: ghClient,
+		metrics:  m,
+		hub:      hub,
 	}
 
 	// Set up callback to broadcast job state changes via WebSocket.
@@ -202,6 +205,7 @@ func (s *server) setupRouter() {
 				r.Delete("/jobs/{id}", s.handleDeleteJob)
 				r.Post("/jobs/{id}/pause", s.handlePauseJob)
 				r.Post("/jobs/{id}/unpause", s.handleUnpauseJob)
+				r.Post("/jobs/{id}/cancel", s.handleCancelJob)
 				r.Post("/jobs/{id}/disable-requeue", s.handleDisableAutoRequeue)
 				r.Put("/jobs/{id}/auto-requeue", s.handleUpdateAutoRequeue)
 
@@ -591,6 +595,92 @@ func (s *server) handleUnpauseJob(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	s.writeJSON(w, http.StatusOK, job)
+}
+
+func (s *server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	jobID := chi.URLParam(r, "id")
+
+	// Get the job.
+	job, err := s.queue.GetJob(r.Context(), jobID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get job")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get job")
+
+		return
+	}
+
+	if job == nil {
+		s.writeError(w, http.StatusNotFound, "Job not found")
+
+		return
+	}
+
+	// Verify job is triggered or running.
+	if job.Status != store.JobStatusTriggered && job.Status != store.JobStatusRunning {
+		s.writeError(w, http.StatusBadRequest, "Job can only be cancelled when triggered or running")
+
+		return
+	}
+
+	// If we have a run ID, cancel the workflow run on GitHub.
+	if job.RunID != nil && *job.RunID != 0 {
+		// Get the template for owner/repo.
+		template, err := s.store.GetJobTemplate(r.Context(), job.TemplateID)
+		if err != nil {
+			s.log.WithError(err).Error("Failed to get job template")
+			s.writeError(w, http.StatusInternalServerError, "Failed to get job template")
+
+			return
+		}
+
+		if template == nil {
+			s.writeError(w, http.StatusInternalServerError, "Job template not found")
+
+			return
+		}
+
+		// Cancel the workflow run on GitHub.
+		if err := s.ghClient.CancelWorkflowRun(r.Context(), template.Owner, template.Repo, *job.RunID); err != nil {
+			s.log.WithError(err).Warn("Cancel request returned error, checking actual run status")
+
+			// Check if the run was actually cancelled despite the error.
+			// GitHub can return transient errors like "job scheduled on GitHub side"
+			// even when the cancellation succeeds.
+			run, getErr := s.ghClient.GetWorkflowRun(r.Context(), template.Owner, template.Repo, *job.RunID)
+			if getErr != nil {
+				s.log.WithError(getErr).Error("Failed to verify workflow run status after cancel error")
+				s.writeError(w, http.StatusInternalServerError, "Failed to cancel workflow run on GitHub")
+
+				return
+			}
+
+			// If the run is not cancelled or cancelling, return the original error.
+			if run.Conclusion != "cancelled" && run.Status != "completed" {
+				s.log.WithFields(logrus.Fields{
+					"status":     run.Status,
+					"conclusion": run.Conclusion,
+				}).Error("Workflow run was not cancelled")
+				s.writeError(w, http.StatusInternalServerError, "Failed to cancel workflow run on GitHub")
+
+				return
+			}
+
+			s.log.Info("Workflow run confirmed cancelled despite initial error")
+		}
+	}
+
+	// Mark the job as cancelled.
+	if err := s.queue.MarkCancelled(r.Context(), job.ID); err != nil {
+		s.log.WithError(err).Error("Failed to mark job as cancelled")
+		s.writeError(w, http.StatusInternalServerError, "Failed to mark job as cancelled")
+
+		return
+	}
+
+	// Get the updated job.
+	job, _ = s.queue.GetJob(r.Context(), jobID)
 
 	s.writeJSON(w, http.StatusOK, job)
 }
