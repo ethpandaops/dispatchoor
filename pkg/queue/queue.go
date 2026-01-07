@@ -293,8 +293,8 @@ func (s *service) ListHistory(ctx context.Context, groupID string, limit int) ([
 		return nil, err
 	}
 
-	// Sort by completed_at descending and limit.
-	// Note: In a real implementation, this should be done in the SQL query.
+	// Sorting by completed_at desc is done in the SQL query. Apply limit here.
+	// TODO: Move limit to the SQL query for better performance.
 	if limit > 0 && len(jobs) > limit {
 		jobs = jobs[:limit]
 	}

@@ -119,7 +119,13 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
   const formatTime = (dateStr: string | null) => {
     if (!dateStr) return null;
     const date = new Date(dateStr);
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
   };
 
   const getElapsedTime = () => {
@@ -206,6 +212,14 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
                 {getElapsedTime()}
+              </span>
+            )}
+            {job.completed_at && (
+              <span className="flex items-center gap-1" title="Completed at">
+                <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {formatTime(job.completed_at)}
               </span>
             )}
             {job.runner_name && (

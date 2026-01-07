@@ -550,10 +550,12 @@ func (s *PostgresStore) ListJobsByGroup(
 		query += fmt.Sprintf(" AND status IN (%s)", strings.Join(placeholders, ","))
 	}
 
-	// Order: running/triggered jobs first by triggered_at, then pending jobs by position.
+	// Order: running/triggered jobs first by triggered_at, then history jobs by completed_at desc,
+	// then pending jobs by position.
 	query += ` ORDER BY
 		CASE WHEN status IN ('triggered', 'running') THEN 0 ELSE 1 END,
 		CASE WHEN status IN ('triggered', 'running') THEN triggered_at END,
+		CASE WHEN status IN ('completed', 'failed', 'cancelled') THEN completed_at END DESC,
 		position`
 
 	return s.queryJobs(ctx, query, args...)
