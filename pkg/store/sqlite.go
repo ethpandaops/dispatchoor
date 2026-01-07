@@ -759,21 +759,51 @@ func (s *SQLiteStore) DeleteOldJobs(ctx context.Context, olderThan time.Time) (i
 
 // ListJobHistory retrieves paginated job history with cursor-based pagination.
 func (s *SQLiteStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpts) (*HistoryResult, error) {
-	query := `
-		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
-		FROM jobs
-		WHERE group_id = ?
-		AND status IN ('completed', 'failed', 'cancelled')
-	`
+	// Determine which statuses to filter by.
+	statuses := opts.Statuses
+	if len(statuses) == 0 {
+		statuses = []JobStatus{JobStatusCompleted, JobStatusFailed, JobStatusCancelled}
+	}
+
+	// Build status placeholders and args.
+	statusPlaceholders := make([]string, len(statuses))
 	args := []any{opts.GroupID}
 
+	for i, status := range statuses {
+		statusPlaceholders[i] = "?"
+		args = append(args, status)
+	}
+
+	// Check if we need to join with job_templates for label filtering.
+	needsJoin := len(opts.Labels) > 0
+
+	query := `
+		SELECT j.id, j.group_id, j.template_id, j.priority, j.position, j.status, j.paused, j.auto_requeue, j.requeue_limit, j.requeue_count, j.inputs, j.created_by,
+			   j.triggered_at, j.run_id, j.run_url, j.runner_name, j.completed_at, j.error_message, j.created_at, j.updated_at
+		FROM jobs j
+	`
+
+	if needsJoin {
+		query += " JOIN job_templates t ON j.template_id = t.id"
+	}
+
+	query += fmt.Sprintf(`
+		WHERE j.group_id = ?
+		AND j.status IN (%s)
+	`, strings.Join(statusPlaceholders, ","))
+
+	// Add label filters using SQLite JSON extraction.
+	for key, value := range opts.Labels {
+		query += " AND json_extract(t.labels, ?) = ?"
+		args = append(args, "$."+key, value)
+	}
+
 	if opts.Before != nil {
-		query += " AND completed_at < ?"
+		query += " AND j.completed_at < ?"
 		args = append(args, *opts.Before)
 	}
 
-	query += " ORDER BY completed_at DESC"
+	query += " ORDER BY j.completed_at DESC"
 
 	// Fetch one extra to check if more exist.
 	fetchLimit := opts.Limit + 1
@@ -801,13 +831,30 @@ func (s *SQLiteStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpts)
 		result.NextCursor = lastJob.CompletedAt
 	}
 
-	// Get total count.
+	// Get total count with same filters.
+	countQuery := "SELECT COUNT(*) FROM jobs j"
+	if needsJoin {
+		countQuery += " JOIN job_templates t ON j.template_id = t.id"
+	}
+
+	countQuery += fmt.Sprintf(`
+		WHERE j.group_id = ?
+		AND j.status IN (%s)
+	`, strings.Join(statusPlaceholders, ","))
+
+	countArgs := []any{opts.GroupID}
+	for _, status := range statuses {
+		countArgs = append(countArgs, status)
+	}
+
+	for key, value := range opts.Labels {
+		countQuery += " AND json_extract(t.labels, ?) = ?"
+		countArgs = append(countArgs, "$."+key, value)
+	}
+
 	var totalCount int
 
-	err = s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM jobs
-		WHERE group_id = ? AND status IN ('completed', 'failed', 'cancelled')
-	`, opts.GroupID).Scan(&totalCount)
+	err = s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("counting history jobs: %w", err)
 	}

@@ -765,23 +765,55 @@ func (s *PostgresStore) DeleteOldJobs(ctx context.Context, olderThan time.Time) 
 
 // ListJobHistory retrieves paginated job history with cursor-based pagination.
 func (s *PostgresStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpts) (*HistoryResult, error) {
-	query := `
-		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
-		FROM jobs
-		WHERE group_id = $1
-		AND status IN ('completed', 'failed', 'cancelled')
-	`
+	// Determine which statuses to filter by.
+	statuses := opts.Statuses
+	if len(statuses) == 0 {
+		statuses = []JobStatus{JobStatusCompleted, JobStatusFailed, JobStatusCancelled}
+	}
+
+	// Build status placeholders with PostgreSQL parameter syntax.
 	args := []any{opts.GroupID}
 	paramNum := 2
+	statusPlaceholders := make([]string, len(statuses))
+
+	for i, status := range statuses {
+		statusPlaceholders[i] = fmt.Sprintf("$%d", paramNum)
+		args = append(args, status)
+		paramNum++
+	}
+
+	// Check if we need to join with job_templates for label filtering.
+	needsJoin := len(opts.Labels) > 0
+
+	query := `
+		SELECT j.id, j.group_id, j.template_id, j.priority, j.position, j.status, j.paused, j.auto_requeue, j.requeue_limit, j.requeue_count, j.inputs, j.created_by,
+			   j.triggered_at, j.run_id, j.run_url, j.runner_name, j.completed_at, j.error_message, j.created_at, j.updated_at
+		FROM jobs j
+	`
+
+	if needsJoin {
+		query += " JOIN job_templates t ON j.template_id = t.id"
+	}
+
+	query += fmt.Sprintf(`
+		WHERE j.group_id = $1
+		AND j.status IN (%s)
+	`, strings.Join(statusPlaceholders, ","))
+
+	// Add label filters using PostgreSQL JSONB extraction.
+	for key, value := range opts.Labels {
+		query += fmt.Sprintf(" AND CAST(t.labels AS jsonb)->>$%d = $%d", paramNum, paramNum+1)
+		args = append(args, key, value)
+		paramNum += 2
+	}
 
 	if opts.Before != nil {
-		query += fmt.Sprintf(" AND completed_at < $%d", paramNum)
+		query += fmt.Sprintf(" AND j.completed_at < $%d", paramNum)
 		args = append(args, *opts.Before)
 		paramNum++
 	}
 
-	query += " ORDER BY completed_at DESC"
+	query += " ORDER BY j.completed_at DESC"
 
 	// Fetch one extra to check if more exist.
 	fetchLimit := opts.Limit + 1
@@ -809,13 +841,36 @@ func (s *PostgresStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpt
 		result.NextCursor = lastJob.CompletedAt
 	}
 
-	// Get total count.
+	// Get total count with same filters.
+	countQuery := "SELECT COUNT(*) FROM jobs j"
+	if needsJoin {
+		countQuery += " JOIN job_templates t ON j.template_id = t.id"
+	}
+
+	countArgs := []any{opts.GroupID}
+	countParamNum := 2
+	countStatusPlaceholders := make([]string, len(statuses))
+
+	for i, status := range statuses {
+		countStatusPlaceholders[i] = fmt.Sprintf("$%d", countParamNum)
+		countArgs = append(countArgs, status)
+		countParamNum++
+	}
+
+	countQuery += fmt.Sprintf(`
+		WHERE j.group_id = $1
+		AND j.status IN (%s)
+	`, strings.Join(countStatusPlaceholders, ","))
+
+	for key, value := range opts.Labels {
+		countQuery += fmt.Sprintf(" AND CAST(t.labels AS jsonb)->>$%d = $%d", countParamNum, countParamNum+1)
+		countArgs = append(countArgs, key, value)
+		countParamNum += 2
+	}
+
 	var totalCount int
 
-	err = s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM jobs
-		WHERE group_id = $1 AND status IN ('completed', 'failed', 'cancelled')
-	`, opts.GroupID).Scan(&totalCount)
+	err = s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount)
 	if err != nil {
 		return nil, fmt.Errorf("counting history jobs: %w", err)
 	}

@@ -130,12 +130,33 @@ class ApiClient {
     return this.request<Job[]>(`/groups/${groupId}/queue`);
   }
 
-  async getHistory(groupId: string, limit = 50, before?: string): Promise<HistoryResponse> {
-    let url = `/groups/${groupId}/history?limit=${limit}`;
-    if (before) {
-      url += `&before=${encodeURIComponent(before)}`;
+  async getHistory(
+    groupId: string,
+    limit = 50,
+    before?: string,
+    filters?: {
+      statuses?: ('completed' | 'failed' | 'cancelled')[];
+      labels?: Record<string, string>;
     }
-    return this.request<HistoryResponse>(url);
+  ): Promise<HistoryResponse> {
+    const params = new URLSearchParams();
+    params.set('limit', limit.toString());
+
+    if (before) {
+      params.set('before', before);
+    }
+
+    if (filters?.statuses && filters.statuses.length > 0) {
+      params.set('status', filters.statuses.join(','));
+    }
+
+    if (filters?.labels) {
+      for (const [key, value] of Object.entries(filters.labels)) {
+        params.set(`label.${key}`, value);
+      }
+    }
+
+    return this.request<HistoryResponse>(`/groups/${groupId}/history?${params.toString()}`);
   }
 
   async getJob(id: string): Promise<Job> {

@@ -124,6 +124,79 @@ export function GroupPage() {
       return prev;
     });
   };
+
+  // History filter state from URL
+  type HistoryStatus = 'completed' | 'failed' | 'cancelled';
+  const validHistoryStatuses: HistoryStatus[] = ['completed', 'failed', 'cancelled'];
+
+  const getHistoryFiltersFromURL = () => {
+    const statusParam = searchParams.get('hstatus');
+    const statuses = statusParam
+      ? statusParam.split(',').filter((s): s is HistoryStatus =>
+          validHistoryStatuses.includes(s as HistoryStatus))
+      : [];
+
+    const labels: Record<string, string> = {};
+    searchParams.forEach((value, key) => {
+      if (key.startsWith('hlabel.')) {
+        labels[key.replace('hlabel.', '')] = value;
+      }
+    });
+
+    return { statuses, labels };
+  };
+
+  const historyFilters = getHistoryFiltersFromURL();
+
+  const updateHistoryFilters = (newFilters: { statuses: HistoryStatus[]; labels: Record<string, string> }) => {
+    setSearchParams((prev) => {
+      // Clear existing filter params
+      const keysToDelete = Array.from(prev.keys()).filter(
+        k => k === 'hstatus' || k.startsWith('hlabel.')
+      );
+      keysToDelete.forEach(k => prev.delete(k));
+
+      // Set new status filter
+      if (newFilters.statuses.length > 0) {
+        prev.set('hstatus', newFilters.statuses.join(','));
+      }
+
+      // Set new label filters
+      for (const [key, value] of Object.entries(newFilters.labels)) {
+        prev.set(`hlabel.${key}`, value);
+      }
+
+      return prev;
+    });
+
+    // Reset pagination when filters change
+    setHistoryCursor(undefined);
+    setHistoryJobs([]);
+  };
+
+  const toggleHistoryStatusFilter = (status: HistoryStatus) => {
+    const newStatuses = historyFilters.statuses.includes(status)
+      ? historyFilters.statuses.filter(s => s !== status)
+      : [...historyFilters.statuses, status];
+    updateHistoryFilters({ ...historyFilters, statuses: newStatuses });
+  };
+
+  const toggleHistoryLabelFilter = (key: string, value: string) => {
+    const newLabels = { ...historyFilters.labels };
+    if (newLabels[key] === value) {
+      delete newLabels[key];
+    } else {
+      newLabels[key] = value;
+    }
+    updateHistoryFilters({ ...historyFilters, labels: newLabels });
+  };
+
+  const clearHistoryFilters = () => {
+    updateHistoryFilters({ statuses: [], labels: {} });
+  };
+
+  const hasActiveHistoryFilters = historyFilters.statuses.length > 0 || Object.keys(historyFilters.labels).length > 0;
+
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [labelFilters, setLabelFilters] = useState<Record<string, string>>({});
   const [showUnlabeled, setShowUnlabeled] = useState(false);
@@ -174,9 +247,15 @@ export function GroupPage() {
     enabled: !!id,
   });
 
+  // Build filter object for API calls
+  const historyFilterParams = {
+    statuses: historyFilters.statuses.length > 0 ? historyFilters.statuses : undefined,
+    labels: Object.keys(historyFilters.labels).length > 0 ? historyFilters.labels : undefined,
+  };
+
   const { data: historyData, isLoading: historyLoading } = useQuery({
-    queryKey: ['history', id],
-    queryFn: () => api.getHistory(id!),
+    queryKey: ['history', id, historyFilters.statuses, historyFilters.labels],
+    queryFn: () => api.getHistory(id!, 50, undefined, historyFilterParams),
     enabled: !!id,
   });
 
@@ -200,7 +279,7 @@ export function GroupPage() {
 
     setIsLoadingMore(true);
     try {
-      const moreData = await api.getHistory(id!, 50, historyData.next_cursor);
+      const moreData = await api.getHistory(id!, 50, historyData.next_cursor, historyFilterParams);
       setHistoryJobs(prev => [...prev, ...moreData.jobs]);
       setHasMoreHistory(moreData.has_more);
       setHistoryCursor(moreData.next_cursor);
@@ -474,28 +553,98 @@ export function GroupPage() {
             </div>
           ) : activeTab === 'history' ? (
             <div className="space-y-4">
-              {/* View mode toggle */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setHistoryViewMode('linear')}
-                  className={`px-2 py-1 text-xs rounded-sm ${
-                    historyViewMode === 'linear'
-                      ? 'bg-zinc-700 text-zinc-200'
-                      : 'text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  Linear
-                </button>
-                <button
-                  onClick={() => setHistoryViewMode('grouped')}
-                  className={`px-2 py-1 text-xs rounded-sm ${
-                    historyViewMode === 'grouped'
-                      ? 'bg-zinc-700 text-zinc-200'
-                      : 'text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  Grouped
-                </button>
+              {/* View mode toggle and filters */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setHistoryViewMode('linear')}
+                    className={`px-2 py-1 text-xs rounded-xs ${
+                      historyViewMode === 'linear'
+                        ? 'bg-zinc-700 text-zinc-200'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    Linear
+                  </button>
+                  <button
+                    onClick={() => setHistoryViewMode('grouped')}
+                    className={`px-2 py-1 text-xs rounded-xs ${
+                      historyViewMode === 'grouped'
+                        ? 'bg-zinc-700 text-zinc-200'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    Grouped
+                  </button>
+                </div>
+
+                {/* Filter controls */}
+                <div className="space-y-2 rounded-xs border border-zinc-800 bg-zinc-900/50 p-3">
+                  {/* Status filter */}
+                  <div className="flex items-center gap-3">
+                    <span className="w-16 shrink-0 text-xs text-zinc-500">Status</span>
+                    <div className="flex flex-wrap gap-1">
+                      {(['completed', 'failed', 'cancelled'] as const).map((status) => (
+                        <button
+                          key={status}
+                          onClick={() => toggleHistoryStatusFilter(status)}
+                          className={`rounded-xs px-2 py-0.5 text-xs capitalize transition-colors ${
+                            historyFilters.statuses.includes(status)
+                              ? status === 'completed'
+                                ? 'bg-green-500/30 text-green-300 ring-1 ring-green-500/50'
+                                : status === 'failed'
+                                ? 'bg-red-500/30 text-red-300 ring-1 ring-red-500/50'
+                                : 'bg-zinc-500/30 text-zinc-300 ring-1 ring-zinc-500/50'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
+                          }`}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Label filters */}
+                  {availableLabels.length > 0 && (
+                    <div className="space-y-1.5">
+                      {availableLabels.map(({ key, values }) => (
+                        <div key={key} className="flex items-center gap-3">
+                          <span className="w-16 shrink-0 text-xs text-zinc-500">{key}</span>
+                          <div className="flex flex-wrap gap-1">
+                            {values.map((value) => (
+                              <button
+                                key={value}
+                                onClick={() => toggleHistoryLabelFilter(key, value)}
+                                className={`rounded-xs px-2 py-0.5 text-xs transition-colors ${
+                                  historyFilters.labels[key] === value
+                                    ? 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-500/50'
+                                    : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
+                                }`}
+                              >
+                                {value}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Clear filters */}
+                  {hasActiveHistoryFilters && (
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-xs text-zinc-500">
+                        Showing {historyData?.total_count ?? 0} results
+                      </span>
+                      <button
+                        onClick={clearHistoryFilters}
+                        className="text-xs text-zinc-500 hover:text-zinc-300"
+                      >
+                        Clear filters
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {historyLoading && historyJobs.length === 0 ? (

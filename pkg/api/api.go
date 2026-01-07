@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/dispatchoor/pkg/auth"
@@ -782,7 +783,43 @@ func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := s.queue.ListHistoryPaginated(r.Context(), groupID, limit, before)
+	// Parse status filter (comma-separated).
+	var statuses []store.JobStatus
+
+	if statusStr := r.URL.Query().Get("status"); statusStr != "" {
+		statusParts := strings.Split(statusStr, ",")
+		for _, st := range statusParts {
+			st = strings.TrimSpace(st)
+			switch st {
+			case "completed":
+				statuses = append(statuses, store.JobStatusCompleted)
+			case "failed":
+				statuses = append(statuses, store.JobStatusFailed)
+			case "cancelled":
+				statuses = append(statuses, store.JobStatusCancelled)
+			}
+		}
+	}
+
+	// Parse label filters (label.KEY=VALUE).
+	labels := make(map[string]string)
+
+	for key, values := range r.URL.Query() {
+		if strings.HasPrefix(key, "label.") && len(values) > 0 {
+			labelKey := strings.TrimPrefix(key, "label.")
+			labels[labelKey] = values[0]
+		}
+	}
+
+	opts := store.HistoryQueryOpts{
+		GroupID:  groupID,
+		Limit:    limit,
+		Before:   before,
+		Statuses: statuses,
+		Labels:   labels,
+	}
+
+	result, err := s.queue.ListHistoryPaginated(r.Context(), opts)
 	if err != nil {
 		s.log.WithError(err).Error("Failed to get history")
 		s.writeError(w, http.StatusInternalServerError, "Failed to get history")

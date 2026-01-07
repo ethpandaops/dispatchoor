@@ -247,9 +247,11 @@ type AuditQueryOpts struct {
 
 // HistoryQueryOpts contains options for querying job history.
 type HistoryQueryOpts struct {
-	GroupID string
-	Limit   int
-	Before  *time.Time // cursor: fetch jobs completed before this time
+	GroupID  string
+	Limit    int
+	Before   *time.Time        // cursor: fetch jobs completed before this time
+	Statuses []JobStatus       // filter by status (multi-select, empty = all history statuses)
+	Labels   map[string]string // filter by template labels (AND logic)
 }
 
 // HistoryResult contains paginated history results.

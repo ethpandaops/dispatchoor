@@ -38,7 +38,7 @@ type Service interface {
 	ListPending(ctx context.Context, groupID string) ([]*store.Job, error)
 	ListByStatus(ctx context.Context, groupID string, statuses ...store.JobStatus) ([]*store.Job, error)
 	ListHistory(ctx context.Context, groupID string, limit int) ([]*store.Job, error)
-	ListHistoryPaginated(ctx context.Context, groupID string, limit int, before *time.Time) (*store.HistoryResult, error)
+	ListHistoryPaginated(ctx context.Context, opts store.HistoryQueryOpts) (*store.HistoryResult, error)
 
 	// State transitions.
 	MarkTriggered(ctx context.Context, jobID string, runID int64, runURL string) error
@@ -340,15 +340,9 @@ func (s *service) ListHistory(ctx context.Context, groupID string, limit int) ([
 // ListHistoryPaginated returns paginated history with cursor support.
 func (s *service) ListHistoryPaginated(
 	ctx context.Context,
-	groupID string,
-	limit int,
-	before *time.Time,
+	opts store.HistoryQueryOpts,
 ) (*store.HistoryResult, error) {
-	return s.store.ListJobHistory(ctx, store.HistoryQueryOpts{
-		GroupID: groupID,
-		Limit:   limit,
-		Before:  before,
-	})
+	return s.store.ListJobHistory(ctx, opts)
 }
 
 // MarkTriggered marks a job as triggered.
