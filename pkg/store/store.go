@@ -133,6 +133,7 @@ type Job struct {
 	TriggeredAt  *time.Time        `json:"triggered_at"`
 	RunID        *int64            `json:"run_id"`
 	RunURL       string            `json:"run_url"`
+	RunnerID     *int64            `json:"runner_id"`
 	RunnerName   string            `json:"runner_name"`
 	CompletedAt  *time.Time        `json:"completed_at"`
 	ErrorMessage string            `json:"error_message"`

@@ -51,12 +51,14 @@ function SortableJobCard({ job, template }: { job: Job; template?: JobTemplate }
   );
 }
 
-function RunnerCard({ runner }: { runner: Runner }) {
+function RunnerCard({ runner, job, template }: { runner: Runner; job?: Job; template?: JobTemplate }) {
+  const hasOurJob = !!job;
+
   return (
     <div className="flex items-center justify-between rounded-sm border border-zinc-800 bg-zinc-900 px-3 py-2">
       <div className="flex items-center gap-2">
         <span
-          className={`size-2 rounded-full ${
+          className={`size-2 shrink-0 rounded-full ${
             runner.status === 'online'
               ? runner.busy
                 ? 'bg-amber-500 animate-pulse'
@@ -64,11 +66,37 @@ function RunnerCard({ runner }: { runner: Runner }) {
               : 'bg-zinc-600'
           }`}
         />
-        <span className="text-sm text-zinc-200">{runner.name}</span>
+        <div className="min-w-0">
+          <div className="text-sm text-zinc-200">{runner.name}</div>
+          {runner.busy && hasOurJob && (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-amber-400 truncate" title={template?.name}>
+                {template?.name || 'running job'}
+              </span>
+              {job.run_url && (
+                <a
+                  href={job.run_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 text-zinc-500 hover:text-zinc-300"
+                  title="View run on GitHub"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <svg className="size-3" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+                    <path d="M5 5v14h14v-7h2v9H3V3h9v2H5z"/>
+                  </svg>
+                </a>
+              )}
+            </div>
+          )}
+        </div>
       </div>
-      <span className={`text-xs ${runner.busy ? 'text-amber-400' : 'text-zinc-500'}`}>
-        {runner.busy ? 'busy' : runner.status}
-      </span>
+      {runner.busy ? (
+        !hasOurJob && <span className="text-xs text-zinc-500 italic">external job</span>
+      ) : (
+        <span className="text-xs text-zinc-500">{runner.status}</span>
+      )}
     </div>
   );
 }
@@ -779,6 +807,14 @@ export function GroupPage() {
   const idleRunners = runners.filter((r: Runner) => r.status === 'online' && !r.busy);
   const busyRunners = runners.filter((r: Runner) => r.busy);
   const offlineRunners = runners.filter((r: Runner) => r.status === 'offline');
+
+  // Find which job a runner is executing by matching runner_id
+  const getJobForRunner = (runnerId: number) => {
+    return queue.find(
+      (job) => job.runner_id === runnerId &&
+               (job.status === 'running' || job.status === 'triggered')
+    );
+  };
 
   if (groupLoading) {
     return (
@@ -1568,9 +1604,13 @@ export function GroupPage() {
                     Busy ({busyRunners.length})
                   </h3>
                   <div className="space-y-1.5">
-                    {busyRunners.map((runner) => (
-                      <RunnerCard key={runner.id} runner={runner} />
-                    ))}
+                    {busyRunners.map((runner) => {
+                      const job = getJobForRunner(runner.id);
+                      const template = job ? getTemplateForJob(job) : undefined;
+                      return (
+                        <RunnerCard key={runner.id} runner={runner} job={job} template={template} />
+                      );
+                    })}
                   </div>
                 </div>
               )}

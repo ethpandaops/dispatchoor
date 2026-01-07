@@ -58,6 +58,7 @@ export interface Job {
   triggered_at: string | null;
   run_id: number | null;
   run_url: string;
+  runner_id: number | null;
   runner_name: string;
   completed_at: string | null;
   error_message: string;

@@ -42,7 +42,7 @@ type Service interface {
 
 	// State transitions.
 	MarkTriggered(ctx context.Context, jobID string, runID int64, runURL string) error
-	MarkRunning(ctx context.Context, jobID, runnerName string) error
+	MarkRunning(ctx context.Context, jobID string, runnerID int64, runnerName string) error
 	MarkCompleted(ctx context.Context, jobID string) error
 	MarkFailed(ctx context.Context, jobID, errMsg string) error
 	MarkCancelled(ctx context.Context, jobID string) error
@@ -385,7 +385,7 @@ func (s *service) MarkTriggered(ctx context.Context, jobID string, runID int64, 
 }
 
 // MarkRunning marks a job as running.
-func (s *service) MarkRunning(ctx context.Context, jobID, runnerName string) error {
+func (s *service) MarkRunning(ctx context.Context, jobID string, runnerID int64, runnerName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -403,6 +403,9 @@ func (s *service) MarkRunning(ctx context.Context, jobID, runnerName string) err
 	}
 
 	job.Status = store.JobStatusRunning
+	if runnerID != 0 {
+		job.RunnerID = &runnerID
+	}
 	job.RunnerName = runnerName
 	job.UpdatedAt = time.Now()
 
@@ -411,8 +414,9 @@ func (s *service) MarkRunning(ctx context.Context, jobID, runnerName string) err
 	}
 
 	s.log.WithFields(logrus.Fields{
-		"job_id": jobID,
-		"runner": runnerName,
+		"job_id":    jobID,
+		"runner_id": runnerID,
+		"runner":    runnerName,
 	}).Info("Job marked as running")
 
 	s.notifyJobChange(job)

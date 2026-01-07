@@ -204,6 +204,12 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		EXCEPTION
 			WHEN duplicate_column THEN NULL;
 		END $$`,
+		// Migration: Add runner_id column to jobs table.
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN runner_id BIGINT;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
 	}
 
 	for _, migration := range migrations {
@@ -550,12 +556,14 @@ func (s *PostgresStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	var runURL, runnerName, errorMessage, createdBy sql.NullString
 
+	var runnerID sql.NullInt64
+
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
+			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE id = $1
 	`, id).Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position, &job.Status,
-		&job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName, &completedAt,
+		&job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName, &completedAt,
 		&errorMessage, &job.CreatedAt, &job.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -584,6 +592,10 @@ func (s *PostgresStore) GetJob(ctx context.Context, id string) (*Job, error) {
 		job.RunID = &runID.Int64
 	}
 
+	if runnerID.Valid {
+		job.RunnerID = &runnerID.Int64
+	}
+
 	if requeueLimit.Valid {
 		limit := int(requeueLimit.Int64)
 		job.RequeueLimit = &limit
@@ -603,7 +615,7 @@ func (s *PostgresStore) ListJobsByGroup(
 ) ([]*Job, error) {
 	query := `
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
+			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE group_id = $1
 	`
 
@@ -648,7 +660,7 @@ func (s *PostgresStore) ListJobsByStatus(ctx context.Context, statuses ...JobSta
 
 	query := fmt.Sprintf(`
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at
+			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at
 		FROM jobs WHERE status IN (%s) ORDER BY position
 	`, strings.Join(placeholders, ","))
 
@@ -678,8 +690,10 @@ func (s *PostgresStore) queryJobs(ctx context.Context, query string, args ...any
 
 		var runURL, runnerName, errorMessage, createdBy sql.NullString
 
+		var runnerID sql.NullInt64
+
 		if err := rows.Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position,
-			&job.Status, &job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerName,
+			&job.Status, &job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName,
 			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning job: %w", err)
 		}
@@ -700,6 +714,10 @@ func (s *PostgresStore) queryJobs(ctx context.Context, query string, args ...any
 
 		if runID.Valid {
 			job.RunID = &runID.Int64
+		}
+
+		if runnerID.Valid {
+			job.RunnerID = &runnerID.Int64
 		}
 
 		if requeueLimit.Valid {
@@ -729,11 +747,11 @@ func (s *PostgresStore) UpdateJob(ctx context.Context, job *Job) error {
 
 	_, err = s.db.ExecContext(ctx, `
 		UPDATE jobs SET priority = $1, position = $2, status = $3, paused = $4, auto_requeue = $5, requeue_limit = $6, requeue_count = $7, inputs = $8,
-			   triggered_at = $9, run_id = $10, run_url = $11, runner_name = $12,
-			   completed_at = $13, error_message = $14, updated_at = $15
-		WHERE id = $16
+			   triggered_at = $9, run_id = $10, run_url = $11, runner_id = $12, runner_name = $13,
+			   completed_at = $14, error_message = $15, updated_at = $16
+		WHERE id = $17
 	`, job.Priority, job.Position, job.Status, job.Paused, job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON),
-		job.TriggeredAt, job.RunID, job.RunURL, job.RunnerName,
+		job.TriggeredAt, job.RunID, job.RunURL, job.RunnerID, job.RunnerName,
 		job.CompletedAt, job.ErrorMessage, job.UpdatedAt, job.ID)
 
 	if err != nil {
@@ -796,7 +814,7 @@ func (s *PostgresStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpt
 
 	query := `
 		SELECT j.id, j.group_id, j.template_id, j.priority, j.position, j.status, j.paused, j.auto_requeue, j.requeue_limit, j.requeue_count, j.inputs, j.created_by,
-			   j.triggered_at, j.run_id, j.run_url, j.runner_name, j.completed_at, j.error_message, j.created_at, j.updated_at
+			   j.triggered_at, j.run_id, j.run_url, j.runner_id, j.runner_name, j.completed_at, j.error_message, j.created_at, j.updated_at
 		FROM jobs j
 	`
 

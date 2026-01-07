@@ -377,7 +377,7 @@ func (d *dispatcher) trackJob(ctx context.Context, job *store.Job) error {
 				}
 			}
 
-			if err := d.queue.MarkRunning(ctx, job.ID, runnerName); err != nil {
+			if err := d.queue.MarkRunning(ctx, job.ID, runnerID, runnerName); err != nil {
 				return fmt.Errorf("marking job as running: %w", err)
 			}
 
