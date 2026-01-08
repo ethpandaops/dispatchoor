@@ -14,6 +14,7 @@ export interface Group {
   description: string;
   runner_labels: string[];
   enabled: boolean;
+  paused: boolean;
   created_at: string;
   updated_at: string;
 }

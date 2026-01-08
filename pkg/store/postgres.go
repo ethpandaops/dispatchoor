@@ -210,6 +210,12 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		EXCEPTION
 			WHEN duplicate_column THEN NULL;
 		END $$`,
+		// Migration: Add paused column to groups table.
+		`DO $$ BEGIN
+			ALTER TABLE groups ADD COLUMN paused BOOLEAN DEFAULT false;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
 	}
 
 	for _, migration := range migrations {
@@ -233,10 +239,10 @@ func (s *PostgresStore) CreateGroup(ctx context.Context, group *Group) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO groups (id, name, description, runner_labels, enabled, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO groups (id, name, description, runner_labels, enabled, paused, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, group.ID, group.Name, group.Description, string(labelsJSON),
-		group.Enabled, group.CreatedAt, group.UpdatedAt)
+		group.Enabled, group.Paused, group.CreatedAt, group.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("inserting group: %w", err)
@@ -252,10 +258,10 @@ func (s *PostgresStore) GetGroup(ctx context.Context, id string) (*Group, error)
 	var labelsJSON string
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, description, runner_labels, enabled, created_at, updated_at
+		SELECT id, name, description, runner_labels, enabled, paused, created_at, updated_at
 		FROM groups WHERE id = $1
 	`, id).Scan(&group.ID, &group.Name, &group.Description, &labelsJSON,
-		&group.Enabled, &group.CreatedAt, &group.UpdatedAt)
+		&group.Enabled, &group.Paused, &group.CreatedAt, &group.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -275,7 +281,7 @@ func (s *PostgresStore) GetGroup(ctx context.Context, id string) (*Group, error)
 // ListGroups retrieves all groups.
 func (s *PostgresStore) ListGroups(ctx context.Context) ([]*Group, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, description, runner_labels, enabled, created_at, updated_at
+		SELECT id, name, description, runner_labels, enabled, paused, created_at, updated_at
 		FROM groups ORDER BY name
 	`)
 	if err != nil {
@@ -292,7 +298,7 @@ func (s *PostgresStore) ListGroups(ctx context.Context) ([]*Group, error) {
 		var labelsJSON string
 
 		if err := rows.Scan(&group.ID, &group.Name, &group.Description, &labelsJSON,
-			&group.Enabled, &group.CreatedAt, &group.UpdatedAt); err != nil {
+			&group.Enabled, &group.Paused, &group.CreatedAt, &group.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning group: %w", err)
 		}
 
@@ -316,9 +322,9 @@ func (s *PostgresStore) UpdateGroup(ctx context.Context, group *Group) error {
 	group.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE groups SET name = $1, description = $2, runner_labels = $3, enabled = $4, updated_at = $5
-		WHERE id = $6
-	`, group.Name, group.Description, string(labelsJSON), group.Enabled, group.UpdatedAt, group.ID)
+		UPDATE groups SET name = $1, description = $2, runner_labels = $3, enabled = $4, paused = $5, updated_at = $6
+		WHERE id = $7
+	`, group.Name, group.Description, string(labelsJSON), group.Enabled, group.Paused, group.UpdatedAt, group.ID)
 
 	if err != nil {
 		return fmt.Errorf("updating group: %w", err)

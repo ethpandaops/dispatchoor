@@ -152,6 +152,12 @@ func (d *dispatcher) dispatch(ctx context.Context) error {
 			continue
 		}
 
+		if group.Paused {
+			d.log.WithField("group", group.ID).Debug("Group is paused, skipping dispatch")
+
+			continue
+		}
+
 		if err := d.dispatchForGroup(ctx, group); err != nil {
 			d.log.WithError(err).WithField("group", group.ID).Error("Failed to dispatch for group")
 		}

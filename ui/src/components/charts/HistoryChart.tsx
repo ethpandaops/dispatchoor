@@ -8,7 +8,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts';
 import { api } from '../../api/client';

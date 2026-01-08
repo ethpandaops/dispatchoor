@@ -118,6 +118,14 @@ class ApiClient {
     return this.request<Group>(`/groups/${id}`);
   }
 
+  async pauseGroup(id: string): Promise<Group> {
+    return this.request<Group>(`/groups/${id}/pause`, { method: 'POST' });
+  }
+
+  async unpauseGroup(id: string): Promise<Group> {
+    return this.request<Group>(`/groups/${id}/unpause`, { method: 'POST' });
+  }
+
   // Job Templates
   async getJobTemplates(groupId: string): Promise<JobTemplate[]> {
     return this.request<JobTemplate[]>(`/groups/${groupId}/templates`);

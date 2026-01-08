@@ -198,6 +198,10 @@ func (s *server) setupRouter() {
 			r.Group(func(r chi.Router) {
 				r.Use(auth.RequireAdmin())
 
+				// Group management (admin).
+				r.Post("/groups/{id}/pause", s.handlePauseGroup)
+				r.Post("/groups/{id}/unpause", s.handleUnpauseGroup)
+
 				// Queue management (admin).
 				r.Post("/groups/{id}/queue", s.handleAddJob)
 				r.Put("/groups/{id}/queue/reorder", s.handleReorderQueue)
@@ -433,6 +437,66 @@ func (s *server) handleGetGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.writeJSON(w, http.StatusOK, group)
+}
+
+func (s *server) handlePauseGroup(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	group, err := s.store.GetGroup(r.Context(), id)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get group")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get group")
+
+		return
+	}
+
+	if group == nil {
+		s.writeError(w, http.StatusNotFound, "Group not found")
+
+		return
+	}
+
+	group.Paused = true
+
+	if err := s.store.UpdateGroup(r.Context(), group); err != nil {
+		s.log.WithError(err).Error("Failed to pause group")
+		s.writeError(w, http.StatusInternalServerError, "Failed to pause group")
+
+		return
+	}
+
+	s.log.WithField("group", id).Info("Group paused")
+	s.writeJSON(w, http.StatusOK, group)
+}
+
+func (s *server) handleUnpauseGroup(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	group, err := s.store.GetGroup(r.Context(), id)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get group")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get group")
+
+		return
+	}
+
+	if group == nil {
+		s.writeError(w, http.StatusNotFound, "Group not found")
+
+		return
+	}
+
+	group.Paused = false
+
+	if err := s.store.UpdateGroup(r.Context(), group); err != nil {
+		s.log.WithError(err).Error("Failed to unpause group")
+		s.writeError(w, http.StatusInternalServerError, "Failed to unpause group")
+
+		return
+	}
+
+	s.log.WithField("group", id).Info("Group unpaused")
 	s.writeJSON(w, http.StatusOK, group)
 }
 

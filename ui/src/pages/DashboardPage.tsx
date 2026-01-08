@@ -16,11 +16,18 @@ function GroupCard({ group }: { group: GroupWithStats }) {
             <p className="mt-1 text-sm text-zinc-400">{group.description}</p>
           )}
         </div>
-        {!group.enabled && (
-          <span className="rounded-sm bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-500">
-            Disabled
-          </span>
-        )}
+        <div className="flex gap-2">
+          {group.paused && (
+            <span className="rounded-sm bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">
+              Paused
+            </span>
+          )}
+          {!group.enabled && (
+            <span className="rounded-sm bg-zinc-800 px-2 py-0.5 text-xs font-medium text-zinc-500">
+              Disabled
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 grid grid-cols-4 gap-4">
