@@ -16,7 +16,7 @@ const (
 	githubTokenURL   = "https://github.com/login/oauth/access_token"
 	githubUserURL    = "https://api.github.com/user"
 	githubOrgsURL    = "https://api.github.com/user/orgs"
-	httpClientTimout = 10 * time.Second
+	httpClientTimeout = 10 * time.Second
 )
 
 // exchangeGitHubCode exchanges an OAuth code for an access token.
@@ -34,7 +34,7 @@ func (s *service) exchangeGitHubCode(ctx context.Context, code string) (string, 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: httpClientTimout}
+	client := &http.Client{Timeout: httpClientTimeout}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -81,7 +81,7 @@ func (s *service) getGitHubUser(ctx context.Context, accessToken string) (*GitHu
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	client := &http.Client{Timeout: httpClientTimout}
+	client := &http.Client{Timeout: httpClientTimeout}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -124,7 +124,7 @@ func (s *service) getGitHubUserOrgs(ctx context.Context, accessToken string) ([]
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	client := &http.Client{Timeout: httpClientTimout}
+	client := &http.Client{Timeout: httpClientTimeout}
 
 	resp, err := client.Do(req)
 	if err != nil {
