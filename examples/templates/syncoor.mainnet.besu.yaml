@@ -1,0 +1,33 @@
+# Besu with Lighthouse for Mainnet network
+- id: sync-test-mainnet-besu-lighthouse
+  name: Sync Test (Mainnet) - besu/lighthouse
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  labels:
+    network: mainnet
+    el-client: besu
+    cl-client: lighthouse
+  inputs:
+    runs-on: '{"group": "synctest", "labels": "Disk4TB"}'
+    run-timeout-minutes: "1440"
+    el-client: '"besu"'
+    cl-client: '"lighthouse"'
+    config: >-
+      {
+        "network": "mainnet",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "checkpointSyncURL": "https://mainnet-checkpoint-sync.attestant.io",
+          "images": {
+            "lighthouse": "sigp/lighthouse:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "besu": "hyperledger/besu:latest"
+          }
+        }
+      }

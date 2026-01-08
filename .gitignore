@@ -50,3 +50,8 @@ ui/.vite/
 # Logs
 *.log
 logs/
+
+node_modules
+dist
+dist-ssr
+*.local

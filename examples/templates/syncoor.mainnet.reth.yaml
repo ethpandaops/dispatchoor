@@ -1,0 +1,33 @@
+# Reth with Lighthouse for Mainnet network
+- id: sync-test-mainnet-reth-lighthouse
+  name: Sync Test (Mainnet) - reth/lighthouse
+  owner: ethpandaops
+  repo: syncoor-tests
+  workflow_id: syncoor.yaml
+  ref: master
+  labels:
+    network: mainnet
+    el-client: reth
+    cl-client: lighthouse
+  inputs:
+    runs-on: '{"group": "synctest", "labels": "Disk4TB"}'
+    run-timeout-minutes: "2880"
+    el-client: '"reth"'
+    cl-client: '"lighthouse"'
+    config: >-
+      {
+        "network": "mainnet",
+        "consensus": {
+          "syncType": "checkpoint",
+          "nodeType": "fullnode",
+          "checkpointSyncURL": "https://mainnet-checkpoint-sync.attestant.io",
+          "images": {
+            "lighthouse": "sigp/lighthouse:latest"
+          }
+        },
+        "execution": {
+          "images": {
+            "reth": "ghcr.io/paradigmxyz/reth:latest"
+          }
+        }
+      }
