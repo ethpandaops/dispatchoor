@@ -1,0 +1,31 @@
+name: Deploy - Docker (API)
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+
+      - name: Deploy docker images
+        uses: ethpandaops/actions/docker-build-push@7d7b7bfe36fe4cfa538acd0e23706a23ce07c3ac # master
+        with:
+          registry: ghcr.io
+          registry_username: ${{ github.actor }}
+          registry_password: ${{ secrets.GITHUB_TOKEN }}
+          image_name: ${{ github.repository }}-api
+          push: true
+          platforms: linux/amd64,linux/arm64
+          file: Dockerfile.api

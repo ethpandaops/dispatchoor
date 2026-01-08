@@ -1,4 +1,4 @@
-.PHONY: all build build-api build-ui clean test lint dev dev-api dev-ui docker-build docker-build-api docker-build-web docker-up docker-down
+.PHONY: all build build-api build-ui clean test-api lint-api lint-ui dev dev-api dev-ui docker-build docker-build-api docker-build-web docker-up docker-down
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -30,13 +30,17 @@ clean:
 	rm -rf $(UI_DIR)/dist
 	rm -rf $(UI_DIR)/node_modules
 
-test:
-	@echo "Running tests..."
+test-api:
+	@echo "Running API tests..."
 	go test -race -v ./...
 
-lint:
-	@echo "Linting..."
+lint-api:
+	@echo "Linting API..."
 	golangci-lint run --new-from-rev="origin/master"
+
+lint-ui:
+	@echo "Linting UI..."
+	npm run --prefix $(UI_DIR) lint
 
 dev-api:
 	@echo "Starting API in development mode..."
@@ -87,8 +91,9 @@ help:
 	@echo "  build-api        - Build Go API"
 	@echo "  build-ui         - Build React UI"
 	@echo "  clean            - Remove build artifacts"
-	@echo "  test             - Run tests"
-	@echo "  lint             - Run linter"
+	@echo "  test-api         - Run API tests"
+	@echo "  lint-api         - Run Go linter"
+	@echo "  lint-ui          - Run UI linter (eslint)"
 	@echo "  dev-api          - Start API in dev mode"
 	@echo "  dev-ui           - Start UI in dev mode"
 	@echo "  migrate          - Run database migrations"
