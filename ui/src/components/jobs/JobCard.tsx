@@ -30,6 +30,19 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
+
+  // Update current time every second for running jobs to show live duration
+  useEffect(() => {
+    if (job.status !== 'running' && job.status !== 'triggered') return;
+    if (job.completed_at) return;
+
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [job.status, job.completed_at]);
 
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteJob(job.id),
@@ -161,7 +174,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
   const getElapsedTime = () => {
     if (!job.triggered_at) return null;
     const start = new Date(job.triggered_at).getTime();
-    const end = job.completed_at ? new Date(job.completed_at).getTime() : Date.now();
+    const end = job.completed_at ? new Date(job.completed_at).getTime() : currentTime;
     const seconds = Math.floor((end - start) / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);

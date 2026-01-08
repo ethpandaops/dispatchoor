@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -416,7 +416,7 @@ export function GroupPage() {
     },
   });
 
-  const getTemplateForJob = (job: Job) => templates.find((t) => t.id === job.template_id);
+  const getTemplateForJob = useCallback((job: Job) => templates.find((t) => t.id === job.template_id), [templates]);
 
   // Extract unique labels from all templates
   const availableLabels = useMemo(() => {
@@ -808,7 +808,7 @@ export function GroupPage() {
       groups.get(key)!.jobs.push(job);
     }
     return Array.from(groups.values());
-  }, [historyJobs, templates]);
+  }, [historyJobs, getTemplateForJob]);
 
   const pendingJobs = queue.filter((j) => j.status === 'pending').sort((a, b) => a.position - b.position);
   const activeJobs = queue.filter((j) => j.status === 'triggered' || j.status === 'running').reverse();

@@ -14,22 +14,41 @@ interface AddJobDialogProps {
 }
 
 export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedTemplateId, autoRequeueTemplateIds }: AddJobDialogProps) {
+  // Track which template was selected for confirmation tracking
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [inputOverrides, setInputOverrides] = useState<Record<string, string>>({});
   const [autoRequeue, setAutoRequeue] = useState(false);
   const [hasRequeueLimit, setHasRequeueLimit] = useState(false);
   const [requeueLimit, setRequeueLimit] = useState(5);
-  const [confirmedDuplicate, setConfirmedDuplicate] = useState(false);
+  const [confirmedDuplicateForTemplate, setConfirmedDuplicateForTemplate] = useState<string | null>(null);
+  const [lastOpenState, setLastOpenState] = useState(false);
   const queryClient = useQueryClient();
+
+  // Handle dialog open/close - reset state when opening
+  if (isOpen && !lastOpenState) {
+    const initialTemplateId = preselectedTemplateId || (templates.length > 0 ? templates[0].id : '');
+    setSelectedTemplateId(initialTemplateId);
+    setSearchQuery('');
+    setInputOverrides({});
+    setAutoRequeue(false);
+    setHasRequeueLimit(false);
+    setRequeueLimit(5);
+    setConfirmedDuplicateForTemplate(null);
+  }
+  if (isOpen !== lastOpenState) {
+    setLastOpenState(isOpen);
+  }
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
   const hasExistingAutoRequeue = autoRequeueTemplateIds?.has(selectedTemplateId) ?? false;
+  // Confirmation is only valid for the specific template it was confirmed for
+  const confirmedDuplicate = confirmedDuplicateForTemplate === selectedTemplateId;
 
-  // Reset confirmation when template changes
-  useEffect(() => {
-    setConfirmedDuplicate(false);
-  }, [selectedTemplateId]);
+  // Derive inputs from template defaults merged with user overrides
+  const inputs = selectedTemplate
+    ? { ...selectedTemplate.default_inputs, ...inputOverrides }
+    : inputOverrides;
 
   // Filter templates by search query (searches name and labels)
   const filteredTemplates = templates.filter((t) => {
@@ -45,27 +64,6 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
     return false;
   });
 
-  useEffect(() => {
-    if (selectedTemplate) {
-      setInputs({ ...selectedTemplate.default_inputs });
-    } else {
-      setInputs({});
-    }
-  }, [selectedTemplate]);
-
-  useEffect(() => {
-    if (isOpen) {
-      // Use preselected template if provided, otherwise use first template
-      if (preselectedTemplateId) {
-        setSelectedTemplateId(preselectedTemplateId);
-      } else if (templates.length > 0 && !selectedTemplateId) {
-        setSelectedTemplateId(templates[0].id);
-      }
-      // Reset search when dialog opens
-      setSearchQuery('');
-    }
-  }, [isOpen, templates, preselectedTemplateId]);
-
   const createMutation = useMutation({
     mutationFn: () => api.createJob(
       groupId,
@@ -78,12 +76,6 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
       queryClient.invalidateQueries({ queryKey: ['queue', groupId] });
       queryClient.invalidateQueries({ queryKey: ['groups'] });
       onClose();
-      setSelectedTemplateId('');
-      setInputs({});
-      setAutoRequeue(false);
-      setHasRequeueLimit(false);
-      setRequeueLimit(5);
-      setConfirmedDuplicate(false);
     },
   });
 
@@ -114,7 +106,7 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
   if (!isOpen) return null;
 
   const handleInputChange = (key: string, value: string) => {
-    setInputs((prev) => ({ ...prev, [key]: value }));
+    setInputOverrides((prev) => ({ ...prev, [key]: value }));
   };
 
   return (
@@ -184,7 +176,10 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
                   <button
                     key={template.id}
                     type="button"
-                    onClick={() => setSelectedTemplateId(template.id)}
+                    onClick={() => {
+                      setSelectedTemplateId(template.id);
+                      setInputOverrides({});
+                    }}
                     className={`w-full px-3 py-2 text-left text-sm transition-colors ${
                       selectedTemplateId === template.id
                         ? 'bg-blue-600/20 text-blue-400'
@@ -324,7 +319,7 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
                 <input
                   type="checkbox"
                   checked={confirmedDuplicate}
-                  onChange={(e) => setConfirmedDuplicate(e.target.checked)}
+                  onChange={(e) => setConfirmedDuplicateForTemplate(e.target.checked ? selectedTemplateId : null)}
                   className="size-4 rounded-sm border-amber-600 bg-zinc-800 text-amber-500 focus:ring-amber-500 focus:ring-offset-zinc-900"
                 />
                 <span className="text-sm text-amber-300">I understand, add anyway</span>

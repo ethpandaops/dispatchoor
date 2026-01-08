@@ -34,6 +34,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
 
+  // Store options and queryClient in refs to avoid stale closures
+  const optionsRef = useRef(options);
+  const queryClientRef = useRef(queryClient);
+  // Ref to hold the connect function for self-referencing in reconnect
+  const connectRef = useRef<() => void>(() => {});
+
+  // Update refs when values change
+  useEffect(() => {
+    optionsRef.current = options;
+    queryClientRef.current = queryClient;
+  }, [options, queryClient]);
+
   const connect = useCallback(() => {
     const token = api.getToken();
     if (!token) {
@@ -41,6 +53,56 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     }
 
     const wsUrl = api.getWebSocketUrl();
+
+    const handleMessage = (message: WSMessage) => {
+      const { type, group_id: groupId, payload } = message;
+      const opts = optionsRef.current;
+      const qc = queryClientRef.current;
+
+      switch (type) {
+        case 'runner_status':
+          if (payload && groupId) {
+            opts.onRunnerStatus?.(payload as Runner, groupId);
+            qc.invalidateQueries({ queryKey: ['runners', groupId] });
+            qc.invalidateQueries({ queryKey: ['groups'] });
+          }
+          break;
+
+        case 'queue_update':
+          if (payload && groupId) {
+            opts.onQueueUpdate?.(payload as Job[], groupId);
+            qc.invalidateQueries({ queryKey: ['queue', groupId] });
+            qc.invalidateQueries({ queryKey: ['groups'] });
+          }
+          break;
+
+        case 'job_state':
+          if (payload) {
+            const job = payload as Job;
+            opts.onJobState?.(job);
+            qc.invalidateQueries({ queryKey: ['job', job.id] });
+            qc.invalidateQueries({ queryKey: ['queue', job.group_id] });
+            qc.invalidateQueries({ queryKey: ['history', job.group_id] });
+            qc.invalidateQueries({ queryKey: ['groups'] });
+          }
+          break;
+
+        case 'dispatch':
+          if (payload) {
+            const job = payload as Job;
+            opts.onDispatch?.(job);
+            qc.invalidateQueries({ queryKey: ['queue', job.group_id] });
+            qc.invalidateQueries({ queryKey: ['groups'] });
+          }
+          break;
+
+        case 'error':
+          if (payload) {
+            opts.onError?.(String(payload));
+          }
+          break;
+      }
+    };
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -57,8 +119,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       ws.onclose = () => {
         setIsConnected(false);
         wsRef.current = null;
-        // Attempt to reconnect after 3 seconds
-        reconnectTimeoutRef.current = setTimeout(connect, 3000);
+        // Attempt to reconnect after 3 seconds using ref
+        reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 3000);
       };
 
       ws.onerror = () => {
@@ -74,64 +136,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         }
       };
     } catch {
-      // Connection failed, will retry
-      reconnectTimeoutRef.current = setTimeout(connect, 3000);
+      // Connection failed, will retry using ref
+      reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 3000);
     }
   }, []);
 
-  const handleMessage = useCallback(
-    (message: WSMessage) => {
-      const { type, group_id: groupId, payload } = message;
-
-      switch (type) {
-        case 'runner_status':
-          if (payload && groupId) {
-            options.onRunnerStatus?.(payload as Runner, groupId);
-            // Invalidate runners query
-            queryClient.invalidateQueries({ queryKey: ['runners', groupId] });
-            queryClient.invalidateQueries({ queryKey: ['groups'] });
-          }
-          break;
-
-        case 'queue_update':
-          if (payload && groupId) {
-            options.onQueueUpdate?.(payload as Job[], groupId);
-            // Invalidate queue query
-            queryClient.invalidateQueries({ queryKey: ['queue', groupId] });
-            queryClient.invalidateQueries({ queryKey: ['groups'] });
-          }
-          break;
-
-        case 'job_state':
-          if (payload) {
-            const job = payload as Job;
-            options.onJobState?.(job);
-            // Invalidate job and queue queries
-            queryClient.invalidateQueries({ queryKey: ['job', job.id] });
-            queryClient.invalidateQueries({ queryKey: ['queue', job.group_id] });
-            queryClient.invalidateQueries({ queryKey: ['history', job.group_id] });
-            queryClient.invalidateQueries({ queryKey: ['groups'] });
-          }
-          break;
-
-        case 'dispatch':
-          if (payload) {
-            const job = payload as Job;
-            options.onDispatch?.(job);
-            queryClient.invalidateQueries({ queryKey: ['queue', job.group_id] });
-            queryClient.invalidateQueries({ queryKey: ['groups'] });
-          }
-          break;
-
-        case 'error':
-          if (payload) {
-            options.onError?.(String(payload));
-          }
-          break;
-      }
-    },
-    [queryClient, options]
-  );
+  // Keep connectRef updated with current connect function
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   const subscribe = useCallback((groupId: string) => {
     subscribedGroupsRef.current.add(groupId);

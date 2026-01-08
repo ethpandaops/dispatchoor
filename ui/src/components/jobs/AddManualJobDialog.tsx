@@ -33,8 +33,32 @@ export function AddManualJobDialog({ groupId, templates, isOpen, onClose }: AddM
   // Prepopulate from template
   const [prepopulateTemplateId, setPrepopulateTemplateId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [lastOpenState, setLastOpenState] = useState(false);
 
   const queryClient = useQueryClient();
+
+  // Handle dialog open/close - reset state when opening
+  if (isOpen && !lastOpenState) {
+    setName('');
+    setOwner('');
+    setRepo('');
+    setWorkflowId('');
+    setRef('');
+    setInputs({});
+    setNewInputKey('');
+    setNewInputValue('');
+    setLabels({});
+    setNewLabelKey('');
+    setNewLabelValue('');
+    setAutoRequeue(false);
+    setHasRequeueLimit(false);
+    setRequeueLimit(5);
+    setPrepopulateTemplateId('');
+    setSearchQuery('');
+  }
+  if (isOpen !== lastOpenState) {
+    setLastOpenState(isOpen);
+  }
 
   // Filter templates by search query
   const filteredTemplates = templates.filter((t) => {
@@ -51,9 +75,9 @@ export function AddManualJobDialog({ groupId, templates, isOpen, onClose }: AddM
   });
 
   // Handle prepopulate from template
-  useEffect(() => {
-    if (prepopulateTemplateId) {
-      const template = templates.find(t => t.id === prepopulateTemplateId);
+  const handlePrepopulate = (templateId: string) => {
+    if (templateId) {
+      const template = templates.find(t => t.id === templateId);
       if (template) {
         // Don't set name - keep it user-defined
         setOwner(template.owner);
@@ -63,30 +87,16 @@ export function AddManualJobDialog({ groupId, templates, isOpen, onClose }: AddM
         setInputs({ ...template.default_inputs });
         setLabels(template.labels ? { ...template.labels } : {});
       }
-    }
-  }, [prepopulateTemplateId, templates]);
-
-  // Reset form when dialog opens
-  useEffect(() => {
-    if (isOpen) {
-      setName('');
+    } else {
+      // Reset to empty
       setOwner('');
       setRepo('');
       setWorkflowId('');
       setRef('');
       setInputs({});
-      setNewInputKey('');
-      setNewInputValue('');
       setLabels({});
-      setNewLabelKey('');
-      setNewLabelValue('');
-      setAutoRequeue(false);
-      setHasRequeueLimit(false);
-      setRequeueLimit(5);
-      setPrepopulateTemplateId('');
-      setSearchQuery('');
     }
-  }, [isOpen]);
+  };
 
   const isValid = owner.trim() && repo.trim() && workflowId.trim() && ref.trim();
 
@@ -234,7 +244,10 @@ export function AddManualJobDialog({ groupId, templates, isOpen, onClose }: AddM
               <div className="max-h-32 overflow-y-auto rounded-sm border border-zinc-700 bg-zinc-800">
                 <button
                   type="button"
-                  onClick={() => setPrepopulateTemplateId('')}
+                  onClick={() => {
+                    setPrepopulateTemplateId('');
+                    handlePrepopulate('');
+                  }}
                   className={`w-full px-3 py-2 text-left text-sm transition-colors ${
                     !prepopulateTemplateId
                       ? 'bg-blue-600/20 text-blue-400'
@@ -247,7 +260,10 @@ export function AddManualJobDialog({ groupId, templates, isOpen, onClose }: AddM
                   <button
                     key={template.id}
                     type="button"
-                    onClick={() => setPrepopulateTemplateId(template.id)}
+                    onClick={() => {
+                      setPrepopulateTemplateId(template.id);
+                      handlePrepopulate(template.id);
+                    }}
                     className={`w-full px-3 py-2 text-left text-sm transition-colors ${
                       prepopulateTemplateId === template.id
                         ? 'bg-blue-600/20 text-blue-400'
