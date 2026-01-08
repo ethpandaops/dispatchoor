@@ -4,6 +4,7 @@ import type { Job, JobTemplate } from '../../types';
 import { api } from '../../api/client';
 import { useAuthStore } from '../../stores/authStore';
 import { LabelsDisplay } from '../common/LabelBadge';
+import { JobDetailDialog } from './JobDetailDialog';
 
 interface JobCardProps {
   job: Job;
@@ -28,6 +29,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
   const [showStopRequeueConfirm, setShowStopRequeueConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showDetailDialog, setShowDetailDialog] = useState(false);
 
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteJob(job.id),
@@ -227,6 +229,16 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
 
         {/* Actions */}
         <div className="flex items-center gap-1">
+          {/* Info/details button */}
+          <button
+            onClick={() => setShowDetailDialog(true)}
+            className="rounded-sm p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+            title="View details"
+          >
+            <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
           {/* Cancel button for running/triggered jobs */}
           {isAdmin && (job.status === 'triggered' || job.status === 'running') && (
             <button
@@ -546,6 +558,14 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
           </div>
         </div>
       )}
+
+      {/* Job detail dialog */}
+      <JobDetailDialog
+        job={job}
+        template={template}
+        isOpen={showDetailDialog}
+        onClose={() => setShowDetailDialog(false)}
+      />
     </div>
   );
 }
