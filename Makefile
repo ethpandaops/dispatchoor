@@ -40,6 +40,7 @@ lint-api:
 
 lint-ui:
 	@echo "Linting UI..."
+	npm install --prefix $(UI_DIR)
 	npm run --prefix $(UI_DIR) lint
 
 dev-api:
