@@ -24,6 +24,7 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import { useAuthStore } from '../stores/authStore';
 import { JobCard } from '../components/jobs/JobCard';
 import { AddJobDialog } from '../components/jobs/AddJobDialog';
+import { AddManualJobDialog } from '../components/jobs/AddManualJobDialog';
 import { LabelsDisplay } from '../components/common/LabelBadge';
 import { HistoryChart } from '../components/charts/HistoryChart';
 import type { Job, JobTemplate, Runner } from '../types';
@@ -115,6 +116,8 @@ export function GroupPage() {
   const queryClient = useQueryClient();
   const isAdmin = user?.role === 'admin';
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showManualJobDialog, setShowManualJobDialog] = useState(false);
+  const [showAddJobDropdown, setShowAddJobDropdown] = useState(false);
   const [preselectedTemplateId, setPreselectedTemplateId] = useState<string | undefined>();
 
   // History pagination state
@@ -902,15 +905,56 @@ export function GroupPage() {
                 Pause Queue
               </button>
             )}
-            <button
-              onClick={() => setShowAddDialog(true)}
-              className="flex items-center gap-2 rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Add Job
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowAddJobDropdown(!showAddJobDropdown)}
+                className="flex items-center gap-2 rounded-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Job
+                <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showAddJobDropdown && (
+                <>
+                  {/* Backdrop to close dropdown */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setShowAddJobDropdown(false)}
+                  />
+                  {/* Dropdown menu */}
+                  <div className="absolute right-0 z-20 mt-1 w-48 rounded-sm border border-zinc-700 bg-zinc-800 py-1 shadow-lg">
+                    <button
+                      onClick={() => {
+                        setShowAddJobDropdown(false);
+                        setShowAddDialog(true);
+                      }}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700"
+                    >
+                      <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      From Template
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAddJobDropdown(false);
+                        setShowManualJobDialog(true);
+                      }}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700"
+                    >
+                      <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                      Manual Job
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1680,6 +1724,14 @@ export function GroupPage() {
         }}
         preselectedTemplateId={preselectedTemplateId}
         autoRequeueTemplateIds={autoRequeueTemplateIds}
+      />
+
+      {/* Add Manual Job Dialog */}
+      <AddManualJobDialog
+        groupId={id!}
+        templates={templates.filter((t) => t.in_config)}
+        isOpen={showManualJobDialog}
+        onClose={() => setShowManualJobDialog(false)}
       />
 
       {/* Bulk Action Bars */}

@@ -56,6 +56,20 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, job.id, job.inputs, job.owner, job.repo, job.workflow_id, job.ref, template]);
 
+  // Keyboard shortcuts: ESC to close, Enter to save (if editing)
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   const updateMutation = useMutation({
     mutationFn: () => {
       // Build update payload - only include overrides that differ from template
@@ -121,8 +135,13 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
     setHasChanges(false);
   };
 
+  // Check if this is a manual job (no template)
+  const isManualJob = !job.template_id;
+
   // Check if a field has been overridden from template
+  // For manual jobs, nothing is "overridden" since there's no template
   const isOverridden = (field: 'owner' | 'repo' | 'workflowId' | 'ref') => {
+    if (isManualJob) return false;
     const templateValue = field === 'workflowId' ? template?.workflow_id : template?.[field];
     return editState[field] !== (templateValue ?? '') && editState[field] !== '';
   };
@@ -237,7 +256,7 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Workflow</h3>
               {canEdit && (
-                <span className="text-xs text-zinc-500">Edit fields to override template</span>
+                <span className="text-xs text-zinc-500">Edit fields to override job</span>
               )}
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">

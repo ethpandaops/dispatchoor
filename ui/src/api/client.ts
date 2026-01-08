@@ -184,18 +184,27 @@ class ApiClient {
 
   async createJob(
     groupId: string,
-    templateId: string,
+    templateId: string | null,
     inputs?: Record<string, string>,
     autoRequeue?: boolean,
-    requeueLimit?: number | null
+    requeueLimit?: number | null,
+    manualFields?: {
+      name?: string;
+      owner?: string;
+      repo?: string;
+      workflow_id?: string;
+      ref?: string;
+      labels?: Record<string, string>;
+    }
   ): Promise<Job> {
     return this.request<Job>(`/groups/${groupId}/queue`, {
       method: 'POST',
       body: JSON.stringify({
-        template_id: templateId,
+        template_id: templateId || undefined,
         inputs,
         auto_requeue: autoRequeue,
         requeue_limit: requeueLimit,
+        ...manualFields,
       }),
     });
   }

@@ -104,7 +104,7 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS jobs (
 			id TEXT PRIMARY KEY,
 			group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-			template_id TEXT NOT NULL REFERENCES job_templates(id) ON DELETE CASCADE,
+			template_id TEXT REFERENCES job_templates(id) ON DELETE CASCADE,
 			priority INTEGER DEFAULT 0,
 			position INTEGER NOT NULL,
 			status TEXT NOT NULL,
@@ -247,6 +247,8 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		EXCEPTION
 			WHEN duplicate_column THEN NULL;
 		END $$`,
+		// Migration: Make template_id nullable for manual jobs.
+		`ALTER TABLE jobs ALTER COLUMN template_id DROP NOT NULL`,
 	}
 
 	for _, migration := range migrations {
@@ -571,11 +573,17 @@ func (s *PostgresStore) CreateJob(ctx context.Context, job *Job) error {
 		return fmt.Errorf("marshaling labels: %w", err)
 	}
 
+	// Convert empty template_id to NULL for manual jobs.
+	var templateID sql.NullString
+	if job.TemplateID != "" {
+		templateID = sql.NullString{String: job.TemplateID, Valid: true}
+	}
+
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
 		                  name, owner, repo, workflow_id, ref, labels, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status, job.Paused,
+	`, job.ID, job.GroupID, templateID, job.Priority, job.Position, job.Status, job.Paused,
 		job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON), job.CreatedBy,
 		job.Name, job.Owner, job.Repo, job.WorkflowID, job.Ref, string(labelsJSON), job.CreatedAt, job.UpdatedAt)
 
@@ -602,14 +610,14 @@ func (s *PostgresStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	var runnerID sql.NullInt64
 
-	var name, owner, repo, workflowID, ref, labelsJSON sql.NullString
+	var templateID, name, owner, repo, workflowID, ref, labelsJSON sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at,
 			   name, owner, repo, workflow_id, ref, labels
 		FROM jobs WHERE id = $1
-	`, id).Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position, &job.Status,
+	`, id).Scan(&job.ID, &job.GroupID, &templateID, &job.Priority, &job.Position, &job.Status,
 		&job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName, &completedAt,
 		&errorMessage, &job.CreatedAt, &job.UpdatedAt,
 		&name, &owner, &repo, &workflowID, &ref, &labelsJSON)
@@ -620,6 +628,10 @@ func (s *PostgresStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	if err != nil {
 		return nil, fmt.Errorf("querying job: %w", err)
+	}
+
+	if templateID.Valid {
+		job.TemplateID = templateID.String
 	}
 
 	if inputsJSON.Valid && inputsJSON.String != "" {
@@ -768,13 +780,17 @@ func (s *PostgresStore) queryJobs(ctx context.Context, query string, args ...any
 
 		var runnerID sql.NullInt64
 
-		var name, owner, repo, workflowID, ref, labelsJSON sql.NullString
+		var templateID, name, owner, repo, workflowID, ref, labelsJSON sql.NullString
 
-		if err := rows.Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position,
+		if err := rows.Scan(&job.ID, &job.GroupID, &templateID, &job.Priority, &job.Position,
 			&job.Status, &job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName,
 			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt,
 			&name, &owner, &repo, &workflowID, &ref, &labelsJSON); err != nil {
 			return nil, fmt.Errorf("scanning job: %w", err)
+		}
+
+		if templateID.Valid {
+			job.TemplateID = templateID.String
 		}
 
 		if inputsJSON.Valid && inputsJSON.String != "" {

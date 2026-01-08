@@ -609,10 +609,17 @@ func (s *server) handleListRunners(w http.ResponseWriter, r *http.Request) {
 // ============================================================================
 
 type addJobRequest struct {
-	TemplateID   string            `json:"template_id"`
+	TemplateID   string            `json:"template_id,omitempty"`
 	Inputs       map[string]string `json:"inputs"`
 	AutoRequeue  bool              `json:"auto_requeue"`
 	RequeueLimit *int              `json:"requeue_limit"`
+	// Manual job fields (used when template_id is empty).
+	Name       string            `json:"name,omitempty"`
+	Owner      string            `json:"owner,omitempty"`
+	Repo       string            `json:"repo,omitempty"`
+	WorkflowID string            `json:"workflow_id,omitempty"`
+	Ref        string            `json:"ref,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
 }
 
 func (s *server) handleAddJob(w http.ResponseWriter, r *http.Request) {
@@ -625,10 +632,14 @@ func (s *server) handleAddJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate: either template_id is provided, or all manual fields are required.
 	if req.TemplateID == "" {
-		s.writeError(w, http.StatusBadRequest, "template_id is required")
+		// Manual job - validate required fields.
+		if req.Owner == "" || req.Repo == "" || req.WorkflowID == "" || req.Ref == "" {
+			s.writeError(w, http.StatusBadRequest, "Manual jobs require owner, repo, workflow_id, and ref")
 
-		return
+			return
+		}
 	}
 
 	// TODO: Get user from auth context.
@@ -637,6 +648,13 @@ func (s *server) handleAddJob(w http.ResponseWriter, r *http.Request) {
 	opts := &queue.EnqueueOptions{
 		AutoRequeue:  req.AutoRequeue,
 		RequeueLimit: req.RequeueLimit,
+		// Manual job fields.
+		Name:       req.Name,
+		Owner:      req.Owner,
+		Repo:       req.Repo,
+		WorkflowID: req.WorkflowID,
+		Ref:        req.Ref,
+		Labels:     req.Labels,
 	}
 
 	job, err := s.queue.Enqueue(r.Context(), groupID, req.TemplateID, createdBy, req.Inputs, opts)
@@ -779,29 +797,56 @@ func (s *server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 
 	// If we have a run ID, cancel the workflow run on GitHub.
 	if job.RunID != nil && *job.RunID != 0 {
-		// Get the template for owner/repo.
-		template, err := s.store.GetJobTemplate(r.Context(), job.TemplateID)
-		if err != nil {
-			s.log.WithError(err).Error("Failed to get job template")
-			s.writeError(w, http.StatusInternalServerError, "Failed to get job template")
+		// Get owner/repo - prefer job overrides, fall back to template.
+		var owner, repo string
 
-			return
+		if job.Owner != nil && *job.Owner != "" {
+			owner = *job.Owner
 		}
 
-		if template == nil {
-			s.writeError(w, http.StatusInternalServerError, "Job template not found")
+		if job.Repo != nil && *job.Repo != "" {
+			repo = *job.Repo
+		}
+
+		// If not set on job, get from template.
+		if (owner == "" || repo == "") && job.TemplateID != "" {
+			template, err := s.store.GetJobTemplate(r.Context(), job.TemplateID)
+			if err != nil {
+				s.log.WithError(err).Error("Failed to get job template")
+				s.writeError(w, http.StatusInternalServerError, "Failed to get job template")
+
+				return
+			}
+
+			if template == nil {
+				s.writeError(w, http.StatusInternalServerError, "Job template not found")
+
+				return
+			}
+
+			if owner == "" {
+				owner = template.Owner
+			}
+
+			if repo == "" {
+				repo = template.Repo
+			}
+		}
+
+		if owner == "" || repo == "" {
+			s.writeError(w, http.StatusInternalServerError, "Cannot determine owner/repo for job")
 
 			return
 		}
 
 		// Cancel the workflow run on GitHub.
-		if err := s.ghClient.CancelWorkflowRun(r.Context(), template.Owner, template.Repo, *job.RunID); err != nil {
+		if err := s.ghClient.CancelWorkflowRun(r.Context(), owner, repo, *job.RunID); err != nil {
 			s.log.WithError(err).Warn("Cancel request returned error, checking actual run status")
 
 			// Check if the run was actually cancelled despite the error.
 			// GitHub can return transient errors like "job scheduled on GitHub side"
 			// even when the cancellation succeeds.
-			run, getErr := s.ghClient.GetWorkflowRun(r.Context(), template.Owner, template.Repo, *job.RunID)
+			run, getErr := s.ghClient.GetWorkflowRun(r.Context(), owner, repo, *job.RunID)
 			if getErr != nil {
 				s.log.WithError(getErr).Error("Failed to verify workflow run status after cancel error")
 				s.writeError(w, http.StatusInternalServerError, "Failed to cancel workflow run on GitHub")

@@ -99,7 +99,7 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS jobs (
 			id TEXT PRIMARY KEY,
 			group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-			template_id TEXT NOT NULL REFERENCES job_templates(id) ON DELETE CASCADE,
+			template_id TEXT REFERENCES job_templates(id) ON DELETE CASCADE,
 			priority INTEGER DEFAULT 0,
 			position INTEGER NOT NULL,
 			status TEXT NOT NULL,
@@ -196,6 +196,114 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 			}
 
 			return fmt.Errorf("running migration: %w", err)
+		}
+	}
+
+	// Special migration: Make template_id nullable for manual jobs.
+	// This requires recreating the table in SQLite.
+	if err := s.migrateJobsTemplateIdNullable(ctx); err != nil {
+		return fmt.Errorf("migrating jobs table for nullable template_id: %w", err)
+	}
+
+	return nil
+}
+
+// migrateJobsTemplateIdNullable recreates the jobs table with template_id as nullable.
+// This is needed to support manual jobs that don't have a template.
+func (s *SQLiteStore) migrateJobsTemplateIdNullable(ctx context.Context) error {
+	// Check if migration is needed by checking if template_id is NOT NULL.
+	var notNull int
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT "notnull" FROM pragma_table_info('jobs') WHERE name = 'template_id'
+	`).Scan(&notNull)
+	if err != nil {
+		return fmt.Errorf("checking template_id nullable: %w", err)
+	}
+
+	if notNull == 0 {
+		// Already nullable, nothing to do.
+		return nil
+	}
+
+	// Need to recreate table. Disable foreign keys for this operation.
+	if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return fmt.Errorf("disabling foreign keys: %w", err)
+	}
+
+	// Re-enable foreign keys when done (deferred).
+	defer func() {
+		_, _ = s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+	}()
+
+	// Create new table with nullable template_id.
+	_, err = s.db.ExecContext(ctx, `
+		CREATE TABLE jobs_new (
+			id TEXT PRIMARY KEY,
+			group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+			template_id TEXT REFERENCES job_templates(id) ON DELETE CASCADE,
+			priority INTEGER DEFAULT 0,
+			position INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			inputs TEXT,
+			created_by TEXT,
+			triggered_at TIMESTAMP,
+			run_id INTEGER,
+			run_url TEXT,
+			runner_name TEXT,
+			completed_at TIMESTAMP,
+			error_message TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			paused INTEGER DEFAULT 0,
+			auto_requeue INTEGER DEFAULT 0,
+			requeue_limit INTEGER,
+			requeue_count INTEGER DEFAULT 0,
+			runner_id INTEGER,
+			name TEXT,
+			owner TEXT,
+			repo TEXT,
+			workflow_id TEXT,
+			ref TEXT,
+			labels TEXT
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("creating new jobs table: %w", err)
+	}
+
+	// Copy data.
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO jobs_new
+		SELECT id, group_id, template_id, priority, position, status, inputs, created_by,
+			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at,
+			   paused, auto_requeue, requeue_limit, requeue_count, runner_id, name, owner, repo, workflow_id, ref, labels
+		FROM jobs
+	`)
+	if err != nil {
+		return fmt.Errorf("copying jobs data: %w", err)
+	}
+
+	// Drop old table.
+	if _, err := s.db.ExecContext(ctx, "DROP TABLE jobs"); err != nil {
+		return fmt.Errorf("dropping old jobs table: %w", err)
+	}
+
+	// Rename new table.
+	if _, err := s.db.ExecContext(ctx, "ALTER TABLE jobs_new RENAME TO jobs"); err != nil {
+		return fmt.Errorf("renaming jobs table: %w", err)
+	}
+
+	// Recreate indexes.
+	indexes := []string{
+		"CREATE INDEX IF NOT EXISTS idx_jobs_group_status ON jobs(group_id, status)",
+		"CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)",
+		"CREATE INDEX IF NOT EXISTS idx_jobs_completed_at ON jobs(completed_at)",
+	}
+
+	for _, idx := range indexes {
+		if _, err := s.db.ExecContext(ctx, idx); err != nil {
+			return fmt.Errorf("creating index: %w", err)
 		}
 	}
 
@@ -536,10 +644,16 @@ func (s *SQLiteStore) CreateJob(ctx context.Context, job *Job) error {
 		labelsJSON = sql.NullString{String: string(data), Valid: true}
 	}
 
+	// Convert empty template_id to NULL for manual jobs.
+	var templateID sql.NullString
+	if job.TemplateID != "" {
+		templateID = sql.NullString{String: job.TemplateID, Valid: true}
+	}
+
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by, name, owner, repo, workflow_id, ref, labels, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status, job.Paused,
+	`, job.ID, job.GroupID, templateID, job.Priority, job.Position, job.Status, job.Paused,
 		job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON), job.CreatedBy,
 		job.Name, job.Owner, job.Repo, job.WorkflowID, job.Ref, labelsJSON,
 		job.CreatedAt, job.UpdatedAt)
@@ -567,14 +681,14 @@ func (s *SQLiteStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	var runnerID sql.NullInt64
 
-	var name, owner, repo, workflowID, ref, labelsJSON sql.NullString
+	var templateID, name, owner, repo, workflowID, ref, labelsJSON sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at,
 			   name, owner, repo, workflow_id, ref, labels
 		FROM jobs WHERE id = ?
-	`, id).Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position, &job.Status,
+	`, id).Scan(&job.ID, &job.GroupID, &templateID, &job.Priority, &job.Position, &job.Status,
 		&paused, &autoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName, &completedAt,
 		&errorMessage, &job.CreatedAt, &job.UpdatedAt,
 		&name, &owner, &repo, &workflowID, &ref, &labelsJSON)
@@ -585,6 +699,10 @@ func (s *SQLiteStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	if err != nil {
 		return nil, fmt.Errorf("querying job: %w", err)
+	}
+
+	if templateID.Valid {
+		job.TemplateID = templateID.String
 	}
 
 	if inputsJSON.Valid && inputsJSON.String != "" {
@@ -734,13 +852,17 @@ func (s *SQLiteStore) queryJobs(ctx context.Context, query string, args ...any) 
 
 		var runnerID sql.NullInt64
 
-		var name, owner, repo, workflowID, ref, labelsJSON sql.NullString
+		var templateID, name, owner, repo, workflowID, ref, labelsJSON sql.NullString
 
-		if err := rows.Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position,
+		if err := rows.Scan(&job.ID, &job.GroupID, &templateID, &job.Priority, &job.Position,
 			&job.Status, &paused, &autoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName,
 			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt,
 			&name, &owner, &repo, &workflowID, &ref, &labelsJSON); err != nil {
 			return nil, fmt.Errorf("scanning job: %w", err)
+		}
+
+		if templateID.Valid {
+			job.TemplateID = templateID.String
 		}
 
 		if inputsJSON.Valid && inputsJSON.String != "" {
@@ -899,7 +1021,8 @@ func (s *SQLiteStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpts)
 
 	query := `
 		SELECT j.id, j.group_id, j.template_id, j.priority, j.position, j.status, j.paused, j.auto_requeue, j.requeue_limit, j.requeue_count, j.inputs, j.created_by,
-			   j.triggered_at, j.run_id, j.run_url, j.runner_id, j.runner_name, j.completed_at, j.error_message, j.created_at, j.updated_at
+			   j.triggered_at, j.run_id, j.run_url, j.runner_id, j.runner_name, j.completed_at, j.error_message, j.created_at, j.updated_at,
+			   j.name, j.owner, j.repo, j.workflow_id, j.ref, j.labels
 		FROM jobs j
 	`
 

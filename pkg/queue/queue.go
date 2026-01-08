@@ -19,6 +19,13 @@ type JobChangeCallback func(job *store.Job)
 type EnqueueOptions struct {
 	AutoRequeue  bool
 	RequeueLimit *int
+	// Manual job fields (used when no template is specified).
+	Name       string
+	Owner      string
+	Repo       string
+	WorkflowID string
+	Ref        string
+	Labels     map[string]string
 }
 
 // UpdateJobOptions contains parameters for updating a job.
@@ -159,6 +166,7 @@ func (s *service) notifyJobChange(job *store.Job) {
 }
 
 // Enqueue adds a new job to the queue.
+// If templateID is empty, this creates a manual job using fields from opts.
 func (s *service) Enqueue(
 	ctx context.Context,
 	groupID, templateID, createdBy string,
@@ -168,34 +176,51 @@ func (s *service) Enqueue(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Verify template exists.
-	template, err := s.store.GetJobTemplate(ctx, templateID)
-	if err != nil {
-		return nil, fmt.Errorf("getting template: %w", err)
-	}
+	var mergedInputs map[string]string
 
-	if template == nil {
-		return nil, fmt.Errorf("template not found: %s", templateID)
-	}
+	if templateID != "" {
+		// Template-based job: verify template exists.
+		template, err := s.store.GetJobTemplate(ctx, templateID)
+		if err != nil {
+			return nil, fmt.Errorf("getting template: %w", err)
+		}
 
-	if template.GroupID != groupID {
-		return nil, fmt.Errorf("template %s does not belong to group %s", templateID, groupID)
+		if template == nil {
+			return nil, fmt.Errorf("template not found: %s", templateID)
+		}
+
+		if template.GroupID != groupID {
+			return nil, fmt.Errorf("template %s does not belong to group %s", templateID, groupID)
+		}
+
+		// Merge inputs with template defaults.
+		mergedInputs = make(map[string]string, len(template.DefaultInputs))
+		for k, v := range template.DefaultInputs {
+			mergedInputs[k] = v
+		}
+
+		for k, v := range inputs {
+			mergedInputs[k] = v
+		}
+	} else {
+		// Manual job: validate required fields.
+		if opts == nil || opts.Owner == "" || opts.Repo == "" || opts.WorkflowID == "" || opts.Ref == "" {
+			return nil, fmt.Errorf("manual jobs require owner, repo, workflow_id, and ref")
+		}
+
+		// Use inputs as-is for manual jobs.
+		if inputs != nil {
+			mergedInputs = make(map[string]string, len(inputs))
+			for k, v := range inputs {
+				mergedInputs[k] = v
+			}
+		}
 	}
 
 	// Get max position.
 	maxPos, err := s.store.GetMaxPosition(ctx, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("getting max position: %w", err)
-	}
-
-	// Merge inputs with template defaults.
-	mergedInputs := make(map[string]string, len(template.DefaultInputs))
-	for k, v := range template.DefaultInputs {
-		mergedInputs[k] = v
-	}
-
-	for k, v := range inputs {
-		mergedInputs[k] = v
 	}
 
 	now := time.Now()
@@ -213,23 +238,54 @@ func (s *service) Enqueue(
 		UpdatedAt:  now,
 	}
 
-	// Apply auto-requeue options.
+	// Apply options.
 	if opts != nil {
 		job.AutoRequeue = opts.AutoRequeue
 		job.RequeueLimit = opts.RequeueLimit
+
+		// For manual jobs (or template jobs with overrides), set the workflow fields.
+		if opts.Name != "" {
+			job.Name = &opts.Name
+		}
+
+		if opts.Owner != "" {
+			job.Owner = &opts.Owner
+		}
+
+		if opts.Repo != "" {
+			job.Repo = &opts.Repo
+		}
+
+		if opts.WorkflowID != "" {
+			job.WorkflowID = &opts.WorkflowID
+		}
+
+		if opts.Ref != "" {
+			job.Ref = &opts.Ref
+		}
+
+		if len(opts.Labels) > 0 {
+			job.Labels = opts.Labels
+		}
 	}
 
 	if err := s.store.CreateJob(ctx, job); err != nil {
 		return nil, fmt.Errorf("creating job: %w", err)
 	}
 
-	s.log.WithFields(logrus.Fields{
+	logFields := logrus.Fields{
 		"job_id":       job.ID,
 		"group_id":     groupID,
-		"template_id":  templateID,
 		"position":     job.Position,
 		"auto_requeue": job.AutoRequeue,
-	}).Info("Job enqueued")
+	}
+	if templateID != "" {
+		logFields["template_id"] = templateID
+	} else {
+		logFields["manual"] = true
+	}
+
+	s.log.WithFields(logFields).Info("Job enqueued")
 
 	s.notifyJobChange(job)
 
@@ -818,6 +874,13 @@ func (s *service) maybeAutoRequeue(ctx context.Context, job *store.Job) {
 		CreatedBy:    job.CreatedBy,
 		CreatedAt:    now,
 		UpdatedAt:    now,
+		// Copy manual job fields / overrides.
+		Name:       job.Name,
+		Owner:      job.Owner,
+		Repo:       job.Repo,
+		WorkflowID: job.WorkflowID,
+		Ref:        job.Ref,
+		Labels:     job.Labels,
 	}
 
 	if err := s.store.CreateJob(ctx, newJob); err != nil {

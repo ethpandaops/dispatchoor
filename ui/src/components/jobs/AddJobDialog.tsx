@@ -87,6 +87,30 @@ export function AddJobDialog({ groupId, templates, isOpen, onClose, preselectedT
     },
   });
 
+  // Keyboard shortcuts: ESC to close, Enter to submit
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is in a textarea
+      if (e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (e.key === 'Enter' && !e.shiftKey) {
+        // Submit if valid
+        const canSubmit = selectedTemplateId && (!hasExistingAutoRequeue || !autoRequeue || confirmedDuplicate);
+        if (canSubmit && !createMutation.isPending) {
+          e.preventDefault();
+          createMutation.mutate();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, selectedTemplateId, hasExistingAutoRequeue, autoRequeue, confirmedDuplicate, createMutation]);
+
   if (!isOpen) return null;
 
   const handleInputChange = (key: string, value: string) => {

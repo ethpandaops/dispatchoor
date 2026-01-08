@@ -114,23 +114,29 @@ func (d *dispatcher) notifyRunnerChange(runner *store.Runner) {
 
 // getEffectiveWorkflowParams returns the effective workflow parameters,
 // preferring job overrides over template defaults.
+// For manual jobs (template == nil), only job fields are used.
 func getEffectiveWorkflowParams(job *store.Job, template *store.JobTemplate) (owner, repo, workflowID, ref string) {
-	owner = template.Owner
+	// Start with template defaults if available.
+	if template != nil {
+		owner = template.Owner
+		repo = template.Repo
+		workflowID = template.WorkflowID
+		ref = template.Ref
+	}
+
+	// Job overrides take precedence.
 	if job.Owner != nil && *job.Owner != "" {
 		owner = *job.Owner
 	}
 
-	repo = template.Repo
 	if job.Repo != nil && *job.Repo != "" {
 		repo = *job.Repo
 	}
 
-	workflowID = template.WorkflowID
 	if job.WorkflowID != nil && *job.WorkflowID != "" {
 		workflowID = *job.WorkflowID
 	}
 
-	ref = template.Ref
 	if job.Ref != nil && *job.Ref != "" {
 		ref = *job.Ref
 	}
@@ -245,28 +251,46 @@ func (d *dispatcher) dispatchForGroup(ctx context.Context, group *store.Group) e
 		return nil
 	}
 
-	// Get the job template.
-	template, err := d.store.GetJobTemplate(ctx, job.TemplateID)
-	if err != nil {
-		return fmt.Errorf("getting job template: %w", err)
-	}
+	// Get the job template (may be nil for manual jobs).
+	var template *store.JobTemplate
 
-	if template == nil {
-		return fmt.Errorf("template not found: %s", job.TemplateID)
+	if job.TemplateID != "" {
+		var err error
+
+		template, err = d.store.GetJobTemplate(ctx, job.TemplateID)
+		if err != nil {
+			return fmt.Errorf("getting job template: %w", err)
+		}
+
+		if template == nil {
+			return fmt.Errorf("template not found: %s", job.TemplateID)
+		}
 	}
 
 	// Get effective workflow parameters (job override or template default).
 	owner, repo, workflowID, ref := getEffectiveWorkflowParams(job, template)
 
-	log.WithFields(logrus.Fields{
+	// Validate we have all required params (should be set for manual jobs).
+	if owner == "" || repo == "" || workflowID == "" || ref == "" {
+		return fmt.Errorf("missing required workflow params: owner=%q repo=%q workflow=%q ref=%q",
+			owner, repo, workflowID, ref)
+	}
+
+	logFields := logrus.Fields{
 		"job_id":   job.ID,
-		"template": template.Name,
 		"runner":   idleRunner.Name,
 		"owner":    owner,
 		"repo":     repo,
 		"workflow": workflowID,
 		"ref":      ref,
-	}).Info("Dispatching job")
+	}
+	if template != nil {
+		logFields["template"] = template.Name
+	} else {
+		logFields["manual"] = true
+	}
+
+	log.WithFields(logFields).Info("Dispatching job")
 
 	// Trigger the workflow dispatch.
 	if err := d.ghClient.TriggerWorkflowDispatch(
@@ -337,14 +361,20 @@ func (d *dispatcher) trackRuns(ctx context.Context) error {
 func (d *dispatcher) trackJob(ctx context.Context, job *store.Job) error {
 	log := d.log.WithField("job_id", job.ID)
 
-	// Get the template to know which repo to query.
-	template, err := d.store.GetJobTemplate(ctx, job.TemplateID)
-	if err != nil {
-		return fmt.Errorf("getting job template: %w", err)
-	}
+	// Get the template to know which repo to query (may be nil for manual jobs).
+	var template *store.JobTemplate
 
-	if template == nil {
-		return fmt.Errorf("template not found: %s", job.TemplateID)
+	if job.TemplateID != "" {
+		var err error
+
+		template, err = d.store.GetJobTemplate(ctx, job.TemplateID)
+		if err != nil {
+			return fmt.Errorf("getting job template: %w", err)
+		}
+
+		if template == nil {
+			return fmt.Errorf("template not found: %s", job.TemplateID)
+		}
 	}
 
 	// Get effective workflow parameters (job override or template default).
