@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { useGroups, useSystemStatus } from '../hooks/useGroups';
+import { useGroups } from '../hooks/useGroups';
 import { MiniHistoryChart } from '../components/charts/MiniHistoryChart';
 import type { GroupWithStats } from '../types';
 
@@ -72,40 +72,12 @@ function GroupCard({ group }: { group: GroupWithStats }) {
   );
 }
 
-function StatusSummary() {
-  const { data: status, isLoading } = useSystemStatus();
-
-  if (isLoading || !status) {
-    return null;
-  }
-
-  const statusColor =
-    status.status === 'healthy'
-      ? 'bg-green-500'
-      : status.status === 'degraded'
-        ? 'bg-amber-500'
-        : 'bg-red-500';
-
-  return (
-    <div className="flex items-center gap-3 rounded-sm border border-zinc-800 bg-zinc-900 px-4 py-2">
-      <span className={`size-2 rounded-full ${statusColor}`} />
-      <span className="text-sm font-medium text-zinc-200">
-        System {status.status}
-      </span>
-      <span className="text-xs text-zinc-500">v{status.version.version}</span>
-    </div>
-  );
-}
-
 export function DashboardPage() {
   const { data: groups, isLoading, error } = useGroups();
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-zinc-100">Dashboard</h1>
-        <StatusSummary />
-      </div>
+      <h1 className="text-2xl font-bold text-zinc-100">Dashboard</h1>
 
       {error && (
         <div className="rounded-sm border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
