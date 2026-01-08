@@ -170,6 +170,19 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
     return `${seconds}s`;
   };
 
+  const inputsMatchTemplate = () => {
+    if (!template?.default_inputs) return false;
+    const jobInputs = job.inputs || {};
+    const templateInputs = template.default_inputs;
+
+    const jobKeys = Object.keys(jobInputs);
+    const templateKeys = Object.keys(templateInputs);
+
+    if (jobKeys.length !== templateKeys.length) return false;
+
+    return jobKeys.every(key => jobInputs[key] === templateInputs[key]);
+  };
+
   return (
     <div
       className={`rounded-sm border border-zinc-800 bg-zinc-900 p-4 transition-shadow ${
@@ -197,6 +210,11 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
               {job.paused ? 'paused' : job.status}
             </span>
             <span className="text-xs text-zinc-500">#{job.position}</span>
+            {inputsMatchTemplate() && (
+              <span className="rounded-sm bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-400" title="Inputs match template defaults">
+                Template
+              </span>
+            )}
             {(job.auto_requeue || job.requeue_count > 0) && (
               <span className="inline-flex items-center gap-1 rounded-sm bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400" title="Auto-requeue enabled">
                 <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
