@@ -642,8 +642,10 @@ func (s *server) handleAddJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// TODO: Get user from auth context.
 	createdBy := "anonymous"
+	if user := auth.UserFromContext(r.Context()); user != nil {
+		createdBy = user.Username
+	}
 
 	opts := &queue.EnqueueOptions{
 		AutoRequeue:  req.AutoRequeue,
