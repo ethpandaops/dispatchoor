@@ -1,4 +1,4 @@
-.PHONY: all build build-api build-ui clean test lint dev dev-api dev-ui
+.PHONY: all build build-api build-ui clean test lint dev dev-api dev-ui docker-build docker-build-api docker-build-web docker-up docker-down
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -54,33 +54,46 @@ migrate:
 	go run ./cmd/dispatchoor migrate --config config.yaml
 
 # Docker
-docker-build:
+docker-build: docker-build-api docker-build-web
+
+docker-build-api:
 	docker build \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
-		-t dispatchoor:$(VERSION) \
-		-t dispatchoor:latest \
+		-f Dockerfile.api \
+		-t dispatchoor-api:$(VERSION) \
+		-t dispatchoor-api:latest \
 		.
 
-docker-run:
-	docker run --rm -it \
-		-p 9090:9090 \
-		-v $(PWD)/config.yaml:/app/config.yaml:ro \
-		dispatchoor:latest
+docker-build-web:
+	docker build \
+		-f Dockerfile.web \
+		-t dispatchoor-web:$(VERSION) \
+		-t dispatchoor-web:latest \
+		.
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
 
 # Help
 help:
 	@echo "Available targets:"
-	@echo "  all          - Build everything (default)"
-	@echo "  build        - Build API and UI"
-	@echo "  build-api    - Build Go API"
-	@echo "  build-ui     - Build React UI"
-	@echo "  clean        - Remove build artifacts"
-	@echo "  test         - Run tests"
-	@echo "  lint         - Run linter"
-	@echo "  dev-api      - Start API in dev mode"
-	@echo "  dev-ui       - Start UI in dev mode"
-	@echo "  migrate      - Run database migrations"
-	@echo "  docker-build - Build Docker image"
-	@echo "  docker-run   - Run Docker container"
+	@echo "  all              - Build everything (default)"
+	@echo "  build            - Build API and UI"
+	@echo "  build-api        - Build Go API"
+	@echo "  build-ui         - Build React UI"
+	@echo "  clean            - Remove build artifacts"
+	@echo "  test             - Run tests"
+	@echo "  lint             - Run linter"
+	@echo "  dev-api          - Start API in dev mode"
+	@echo "  dev-ui           - Start UI in dev mode"
+	@echo "  migrate          - Run database migrations"
+	@echo "  docker-build     - Build all Docker images"
+	@echo "  docker-build-api - Build API Docker image"
+	@echo "  docker-build-web - Build Web Docker image"
+	@echo "  docker-up        - Start services with docker compose"
+	@echo "  docker-down      - Stop services with docker compose"

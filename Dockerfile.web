@@ -1,0 +1,89 @@
+# syntax=docker/dockerfile:1
+
+# Build stage for React UI
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files first for better caching
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+
+# Copy UI source and build
+COPY ui/ ./
+RUN npm run build
+
+# Final stage with nginx
+FROM nginx:alpine
+
+# Install envsubst for runtime config substitution
+RUN apk add --no-cache gettext
+
+# Copy built UI files
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copy nginx config template
+COPY <<'EOF' /etc/nginx/templates/default.conf.template
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript;
+
+    # API proxy
+    location /api/ {
+        proxy_pass ${API_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+
+    location /health {
+        proxy_pass ${API_URL};
+        proxy_set_header Host $host;
+    }
+
+    location /metrics {
+        proxy_pass ${API_URL};
+        proxy_set_header Host $host;
+    }
+
+    # SPA fallback - serve index.html for all other routes
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}
+EOF
+
+# Copy entrypoint script
+COPY <<'EOF' /docker-entrypoint.d/40-envsubst-on-templates.sh
+#!/bin/sh
+set -e
+envsubst '${API_URL}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+EOF
+
+RUN chmod +x /docker-entrypoint.d/40-envsubst-on-templates.sh
+
+# Default API URL
+ENV API_URL=http://api:9090
+
+EXPOSE 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost/ || exit 1

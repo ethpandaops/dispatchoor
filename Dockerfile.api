@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build stage for Go API
-FROM golang:1.23-alpine AS api-builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -27,19 +27,6 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
     -o /app/dispatchoor \
     ./cmd/dispatchoor
 
-# Build stage for React UI
-FROM node:22-alpine AS ui-builder
-
-WORKDIR /app/ui
-
-# Copy package files first for better caching
-COPY ui/package.json ui/package-lock.json ./
-RUN npm ci
-
-# Copy UI source and build
-COPY ui/ ./
-RUN npm run build
-
 # Final stage
 FROM alpine:3.21
 
@@ -52,9 +39,8 @@ RUN apk add --no-cache ca-certificates tzdata
 RUN addgroup -g 1000 dispatchoor && \
     adduser -u 1000 -G dispatchoor -s /bin/sh -D dispatchoor
 
-# Copy binaries and assets
-COPY --from=api-builder /app/dispatchoor /app/dispatchoor
-COPY --from=ui-builder /app/ui/dist /app/ui/dist
+# Copy binary
+COPY --from=builder /app/dispatchoor /app/dispatchoor
 
 # Copy example config
 COPY config.example.yaml /app/config.example.yaml
