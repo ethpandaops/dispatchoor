@@ -25,21 +25,31 @@ function AppRoutes() {
   const { checkAuth, isLoading } = useAuthStore();
 
   useEffect(() => {
-    // Check for OAuth token in URL (from GitHub OAuth callback redirect).
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
+    const handleOAuthCallback = async () => {
+      // Check for OAuth code in URL (from GitHub OAuth callback redirect).
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
 
-    if (token) {
-      // Store the token and remove it from URL.
-      api.setToken(token);
-      params.delete('token');
-      const newUrl = params.toString()
-        ? `${window.location.pathname}?${params.toString()}`
-        : window.location.pathname;
-      window.history.replaceState({}, '', newUrl);
-    }
+      if (code) {
+        // Exchange the one-time code for a session token.
+        try {
+          await api.exchangeCode(code);
+        } catch (error) {
+          console.error('Failed to exchange auth code:', error);
+        }
 
-    checkAuth();
+        // Remove code from URL.
+        params.delete('code');
+        const newUrl = params.toString()
+          ? `${window.location.pathname}?${params.toString()}`
+          : window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+      }
+
+      checkAuth();
+    };
+
+    handleOAuthCallback();
   }, [checkAuth]);
 
   if (isLoading) {

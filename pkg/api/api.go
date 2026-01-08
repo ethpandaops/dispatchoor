@@ -159,6 +159,7 @@ func (s *server) setupRouter() {
 		r.Post("/auth/login", s.handleLogin)
 		r.Get("/auth/github", s.handleGitHubAuth)
 		r.Get("/auth/github/callback", s.handleGitHubCallback)
+		r.Post("/auth/exchange", s.handleExchangeCode)
 
 		// WebSocket (authentication handled in handler).
 		r.Get("/ws", s.handleWebSocket)
@@ -1248,7 +1249,7 @@ func (s *server) handleRefreshRunners(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	ServeWs(s.hub, s.auth, w, r)
+	ServeWs(s.hub, s.auth, s.cfg.Server.CORSOrigins, w, r)
 }
 
 // ============================================================================
@@ -1294,6 +1295,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Secure:   s.isSecureRequest(r),
 		MaxAge:   int(s.cfg.Auth.SessionTTL.Seconds()),
 	})
 
@@ -1330,6 +1332,8 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   s.isSecureRequest(r),
 		MaxAge:   -1,
 	})
 
@@ -1354,11 +1358,13 @@ func (s *server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate state for CSRF protection.
-	// In production, store this in a session/cookie and validate on callback.
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		state = "dispatchoor"
+	// Generate cryptographically secure state for CSRF protection.
+	state, err := s.auth.CreateOAuthState(r.Context())
+	if err != nil {
+		s.log.WithError(err).Error("Failed to create OAuth state")
+		s.writeError(w, http.StatusInternalServerError, "Failed to initiate OAuth flow")
+
+		return
 	}
 
 	authURL := s.auth.GetGitHubAuthURL(state)
@@ -1379,7 +1385,20 @@ func (s *server) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Validate state parameter for CSRF protection.
+	// Validate state parameter for CSRF protection.
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		s.writeError(w, http.StatusBadRequest, "Missing state parameter")
+
+		return
+	}
+
+	if err := s.auth.ValidateOAuthState(r.Context(), state); err != nil {
+		s.log.WithError(err).Warn("Invalid OAuth state")
+		s.writeError(w, http.StatusBadRequest, "Invalid or expired state parameter")
+
+		return
+	}
 
 	user, token, err := s.auth.AuthenticateGitHub(r.Context(), code)
 	if err != nil {
@@ -1389,13 +1408,14 @@ func (s *server) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set session cookie.
+	// Set session cookie (works for same-origin requests).
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
+		Secure:   s.isSecureRequest(r),
 		MaxAge:   int(s.cfg.Auth.SessionTTL.Seconds()),
 	})
 
@@ -1419,14 +1439,82 @@ func (s *server) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		redirectURL = "/"
 	}
 
-	// Append token to redirect URL for the UI to capture.
+	// Generate one-time authorization code for cross-origin token exchange.
+	// This is more secure than putting the session token in the URL.
+	authCode, err := s.auth.CreateAuthCode(r.Context(), user.ID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to create auth code")
+		s.writeError(w, http.StatusInternalServerError, "Failed to complete authentication")
+
+		return
+	}
+
+	// Append auth code to redirect URL for the UI to exchange for a token.
 	if strings.Contains(redirectURL, "?") {
-		redirectURL += "&token=" + token
+		redirectURL += "&code=" + authCode
 	} else {
-		redirectURL += "?token=" + token
+		redirectURL += "?code=" + authCode
 	}
 
 	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+}
+
+type exchangeCodeRequest struct {
+	Code string `json:"code"`
+}
+
+func (s *server) handleExchangeCode(w http.ResponseWriter, r *http.Request) {
+	var req exchangeCodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+
+		return
+	}
+
+	if req.Code == "" {
+		s.writeError(w, http.StatusBadRequest, "Code is required")
+
+		return
+	}
+
+	user, token, err := s.auth.ExchangeAuthCode(r.Context(), req.Code)
+	if err != nil {
+		s.log.WithError(err).Warn("Code exchange failed")
+		s.writeError(w, http.StatusUnauthorized, "Invalid or expired code")
+
+		return
+	}
+
+	// Set session cookie.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   s.isSecureRequest(r),
+		MaxAge:   int(s.cfg.Auth.SessionTTL.Seconds()),
+	})
+
+	s.writeJSON(w, http.StatusOK, loginResponse{
+		Token: token,
+		User:  user,
+	})
+}
+
+// isSecureRequest checks if the request was made over HTTPS.
+func (s *server) isSecureRequest(r *http.Request) bool {
+	// Check TLS directly.
+	if r.TLS != nil {
+		return true
+	}
+
+	// Check X-Forwarded-Proto header (common with reverse proxies).
+	if r.Header.Get("X-Forwarded-Proto") == "https" {
+		return true
+	}
+
+	return false
 }
 
 // SyncGroupsFromConfig synchronizes groups and job templates from configuration.

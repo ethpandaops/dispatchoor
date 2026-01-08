@@ -34,6 +34,14 @@ type Service interface {
 
 	// GitHub OAuth URL.
 	GetGitHubAuthURL(state string) string
+
+	// OAuth State (CSRF protection).
+	CreateOAuthState(ctx context.Context) (string, error)
+	ValidateOAuthState(ctx context.Context, state string) error
+
+	// Auth Code (one-time exchange).
+	CreateAuthCode(ctx context.Context, userID string) (string, error)
+	ExchangeAuthCode(ctx context.Context, code string) (*store.User, string, error)
 }
 
 // service implements Service.
@@ -380,7 +388,7 @@ func (s *service) createSession(ctx context.Context, user *store.User) (string, 
 	return token, nil
 }
 
-// cleanupSessions periodically removes expired sessions.
+// cleanupSessions periodically removes expired sessions, OAuth states, and auth codes.
 func (s *service) cleanupSessions(ctx context.Context) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
@@ -392,6 +400,14 @@ func (s *service) cleanupSessions(ctx context.Context) {
 		case <-ticker.C:
 			if err := s.store.DeleteExpiredSessions(ctx); err != nil {
 				s.log.WithError(err).Error("Failed to cleanup expired sessions")
+			}
+
+			if err := s.store.DeleteExpiredOAuthStates(ctx); err != nil {
+				s.log.WithError(err).Error("Failed to cleanup expired oauth states")
+			}
+
+			if err := s.store.DeleteExpiredAuthCodes(ctx); err != nil {
+				s.log.WithError(err).Error("Failed to cleanup expired auth codes")
 			}
 		}
 	}
@@ -419,4 +435,121 @@ func hashToken(token string) string {
 type GitHubUser struct {
 	ID    string
 	Login string
+}
+
+const (
+	oauthStateTTL = 5 * time.Minute
+	authCodeTTL   = 30 * time.Second
+)
+
+// CreateOAuthState generates a random state token for CSRF protection.
+func (s *service) CreateOAuthState(ctx context.Context) (string, error) {
+	stateBytes := make([]byte, 32)
+
+	if _, err := rand.Read(stateBytes); err != nil {
+		return "", fmt.Errorf("generating state: %w", err)
+	}
+
+	state := base64.URLEncoding.EncodeToString(stateBytes)
+	now := time.Now()
+
+	oauthState := &store.OAuthState{
+		State:     state,
+		ExpiresAt: now.Add(oauthStateTTL),
+		CreatedAt: now,
+	}
+
+	if err := s.store.CreateOAuthState(ctx, oauthState); err != nil {
+		return "", fmt.Errorf("storing oauth state: %w", err)
+	}
+
+	return state, nil
+}
+
+// ValidateOAuthState validates and consumes an OAuth state token.
+func (s *service) ValidateOAuthState(ctx context.Context, state string) error {
+	oauthState, err := s.store.GetOAuthState(ctx, state)
+	if err != nil {
+		return fmt.Errorf("getting oauth state: %w", err)
+	}
+
+	if oauthState == nil {
+		return fmt.Errorf("invalid oauth state")
+	}
+
+	// Delete the state (single use).
+	if err := s.store.DeleteOAuthState(ctx, state); err != nil {
+		s.log.WithError(err).Error("Failed to delete oauth state")
+	}
+
+	if time.Now().After(oauthState.ExpiresAt) {
+		return fmt.Errorf("oauth state expired")
+	}
+
+	return nil
+}
+
+// CreateAuthCode generates a one-time authorization code for token exchange.
+func (s *service) CreateAuthCode(ctx context.Context, userID string) (string, error) {
+	codeBytes := make([]byte, 32)
+
+	if _, err := rand.Read(codeBytes); err != nil {
+		return "", fmt.Errorf("generating code: %w", err)
+	}
+
+	code := base64.URLEncoding.EncodeToString(codeBytes)
+	now := time.Now()
+
+	authCode := &store.AuthCode{
+		Code:      code,
+		UserID:    userID,
+		ExpiresAt: now.Add(authCodeTTL),
+		CreatedAt: now,
+	}
+
+	if err := s.store.CreateAuthCode(ctx, authCode); err != nil {
+		return "", fmt.Errorf("storing auth code: %w", err)
+	}
+
+	return code, nil
+}
+
+// ExchangeAuthCode exchanges a one-time authorization code for a session token.
+func (s *service) ExchangeAuthCode(ctx context.Context, code string) (*store.User, string, error) {
+	authCode, err := s.store.GetAuthCode(ctx, code)
+	if err != nil {
+		return nil, "", fmt.Errorf("getting auth code: %w", err)
+	}
+
+	if authCode == nil {
+		return nil, "", fmt.Errorf("invalid authorization code")
+	}
+
+	// Delete the code (single use).
+	if err := s.store.DeleteAuthCode(ctx, code); err != nil {
+		s.log.WithError(err).Error("Failed to delete auth code")
+	}
+
+	if time.Now().After(authCode.ExpiresAt) {
+		return nil, "", fmt.Errorf("authorization code expired")
+	}
+
+	user, err := s.store.GetUser(ctx, authCode.UserID)
+	if err != nil {
+		return nil, "", fmt.Errorf("getting user: %w", err)
+	}
+
+	if user == nil {
+		return nil, "", fmt.Errorf("user not found")
+	}
+
+	// Create session.
+	token, err := s.createSession(ctx, user)
+	if err != nil {
+		return nil, "", fmt.Errorf("creating session: %w", err)
+	}
+
+	s.log.WithField("username", user.Username).Info("Auth code exchanged for session")
+
+	return user, token, nil
 }
