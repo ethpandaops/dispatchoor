@@ -1,4 +1,4 @@
-.PHONY: all build build-api build-ui clean test-api lint-api lint-ui dev dev-api dev-ui docker-build docker-build-api docker-build-web docker-up docker-down
+.PHONY: all build build-api build-ui clean test-api lint-api lint-ui swagger dev dev-api dev-ui docker-build docker-build-api docker-build-web docker-up docker-down
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -42,6 +42,10 @@ lint-ui:
 	@echo "Linting UI..."
 	npm install --prefix $(UI_DIR)
 	npm run --prefix $(UI_DIR) lint
+
+swagger:
+	@echo "Generating OpenAPI spec..."
+	swag init -g pkg/api/docs.go -o pkg/api/docs --parseDependency --parseInternal
 
 dev-api:
 	@echo "Starting API in development mode..."
@@ -95,6 +99,7 @@ help:
 	@echo "  test-api         - Run API tests"
 	@echo "  lint-api         - Run Go linter"
 	@echo "  lint-ui          - Run UI linter (eslint)"
+	@echo "  swagger          - Generate OpenAPI spec"
 	@echo "  dev-api          - Start API in dev mode"
 	@echo "  dev-ui           - Start UI in dev mode"
 	@echo "  migrate          - Run database migrations"

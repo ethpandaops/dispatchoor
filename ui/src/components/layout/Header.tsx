@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useUIStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
 import { StatusIndicator } from './StatusIndicator';
@@ -42,7 +43,9 @@ export function Header() {
       </button>
 
       <div className="flex flex-1 items-center gap-2">
-        <h1 className="text-lg font-semibold text-zinc-100">Dispatchoor</h1>
+        <Link to="/" className="text-lg font-semibold text-zinc-100 hover:text-white">
+          Dispatchoor
+        </Link>
         <span className="rounded-sm bg-blue-500/20 px-2 py-0.5 text-xs font-medium text-blue-400">
           beta
         </span>
@@ -52,12 +55,29 @@ export function Header() {
         {/* System status indicator */}
         <StatusIndicator />
 
+        {/* API Docs link */}
+        <Link
+          to="/api-docs"
+          className="inline-flex size-9 items-center justify-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+          title="API Documentation"
+        >
+          <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+            />
+          </svg>
+        </Link>
+
         {/* GitHub link */}
         <a
           href="https://github.com/ethpandaops/dispatchoor"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex size-9 items-center justify-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+          title="GitHub Repository"
         >
           <svg className="size-5" fill="currentColor" viewBox="0 0 24 24">
             <path

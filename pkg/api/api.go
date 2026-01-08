@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethpandaops/dispatchoor/pkg/api/docs"
 	"github.com/ethpandaops/dispatchoor/pkg/auth"
 	"github.com/ethpandaops/dispatchoor/pkg/config"
 	"github.com/ethpandaops/dispatchoor/pkg/github"
@@ -155,6 +156,9 @@ func (s *server) setupRouter() {
 
 	// API v1.
 	r.Route("/api/v1", func(r chi.Router) {
+		// OpenAPI spec (public).
+		r.Get("/openapi.json", s.handleOpenAPISpec)
+
 		// Auth routes (public).
 		r.Post("/auth/login", s.handleLogin)
 		r.Get("/auth/github", s.handleGitHubAuth)
@@ -259,6 +263,22 @@ func corsMiddleware(origins []string) func(http.Handler) http.Handler {
 // Response helpers
 // ============================================================================
 
+// ErrorResponse is the standard error response format.
+type ErrorResponse struct {
+	Error string `json:"error" example:"Something went wrong"`
+}
+
+// GroupWithStats is a group with additional statistics.
+type GroupWithStats struct {
+	*store.Group
+	QueuedJobs    int `json:"queued_jobs" example:"5"`
+	RunningJobs   int `json:"running_jobs" example:"2"`
+	IdleRunners   int `json:"idle_runners" example:"3"`
+	BusyRunners   int `json:"busy_runners" example:"2"`
+	TotalRunners  int `json:"total_runners" example:"5"`
+	TemplateCount int `json:"template_count" example:"10"`
+}
+
 func (s *server) writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -276,10 +296,48 @@ func (s *server) writeError(w http.ResponseWriter, status int, message string) {
 // Handlers
 // ============================================================================
 
-func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+// HealthResponse is the response for the health check endpoint.
+type HealthResponse struct {
+	Status string `json:"status" example:"ok"`
 }
 
+// handleOpenAPISpec godoc
+//
+//	@Summary		OpenAPI specification
+//	@Description	Returns the OpenAPI 3.0 specification for the API
+//	@Tags			system
+//	@Produce		json
+//	@Success		200	{object}	object	"OpenAPI specification"
+//	@Router			/openapi.json [get]
+func (s *server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(docs.SwaggerInfo.ReadDoc()))
+}
+
+// handleHealth godoc
+//
+//	@Summary		Health check
+//	@Description	Returns the health status of the API server
+//	@Tags			system
+//	@Produce		json
+//	@Success		200	{object}	HealthResponse
+//	@Router			/health [get]
+func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	s.writeJSON(w, http.StatusOK, HealthResponse{Status: "ok"})
+}
+
+// handleStatus godoc
+//
+//	@Summary		System status
+//	@Description	Returns comprehensive system status including database, GitHub API, and queue statistics
+//	@Tags			system
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Success		200	{object}	SystemStatusResponse
+//	@Failure		401	{object}	ErrorResponse
+//	@Router			/status [get]
 func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -359,6 +417,17 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, resp)
 }
 
+// handleListGroups godoc
+//
+//	@Summary		List groups
+//	@Description	Returns all configured groups with statistics
+//	@Tags			groups
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Success		200	{array}		GroupWithStats
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/groups [get]
 func (s *server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 	groups, err := s.store.ListGroups(r.Context())
 	if err != nil {
@@ -368,21 +437,10 @@ func (s *server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Enrich with stats.
-	type groupWithStats struct {
-		*store.Group
-		QueuedJobs    int `json:"queued_jobs"`
-		RunningJobs   int `json:"running_jobs"`
-		IdleRunners   int `json:"idle_runners"`
-		BusyRunners   int `json:"busy_runners"`
-		TotalRunners  int `json:"total_runners"`
-		TemplateCount int `json:"template_count"`
-	}
-
-	result := make([]groupWithStats, 0, len(groups))
+	result := make([]GroupWithStats, 0, len(groups))
 
 	for _, group := range groups {
-		stats := groupWithStats{Group: group}
+		stats := GroupWithStats{Group: group}
 
 		// Get job counts.
 		pendingJobs, err := s.store.ListJobsByGroup(r.Context(), group.ID, store.JobStatusPending)
@@ -421,6 +479,19 @@ func (s *server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, result)
 }
 
+// handleGetGroup godoc
+//
+//	@Summary		Get group
+//	@Description	Returns a single group by ID
+//	@Tags			groups
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Group ID"
+//	@Success		200	{object}	store.Group
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/groups/{id} [get]
 func (s *server) handleGetGroup(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -441,6 +512,20 @@ func (s *server) handleGetGroup(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, group)
 }
 
+// handlePauseGroup godoc
+//
+//	@Summary		Pause group
+//	@Description	Pauses job dispatching for a group (requires admin)
+//	@Tags			groups
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Group ID"
+//	@Success		200	{object}	store.Group
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/groups/{id}/pause [post]
 func (s *server) handlePauseGroup(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -471,6 +556,20 @@ func (s *server) handlePauseGroup(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, group)
 }
 
+// handleUnpauseGroup godoc
+//
+//	@Summary		Unpause group
+//	@Description	Resumes job dispatching for a group (requires admin)
+//	@Tags			groups
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Group ID"
+//	@Success		200	{object}	store.Group
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/groups/{id}/unpause [post]
 func (s *server) handleUnpauseGroup(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -501,6 +600,18 @@ func (s *server) handleUnpauseGroup(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, group)
 }
 
+// handleListJobTemplates godoc
+//
+//	@Summary		List job templates
+//	@Description	Returns all job templates for a group
+//	@Tags			templates
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Group ID"
+//	@Success		200	{array}		store.JobTemplate
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/groups/{id}/templates [get]
 func (s *server) handleListJobTemplates(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "id")
 
@@ -519,6 +630,19 @@ func (s *server) handleListJobTemplates(w http.ResponseWriter, r *http.Request) 
 	s.writeJSON(w, http.StatusOK, templates)
 }
 
+// handleGetJobTemplate godoc
+//
+//	@Summary		Get job template
+//	@Description	Returns a single job template by ID
+//	@Tags			templates
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Template ID"
+//	@Success		200	{object}	store.JobTemplate
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/templates/{id} [get]
 func (s *server) handleGetJobTemplate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -539,6 +663,18 @@ func (s *server) handleGetJobTemplate(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, template)
 }
 
+// handleGetQueue godoc
+//
+//	@Summary		Get queue
+//	@Description	Returns all pending, triggered, and running jobs in the group's queue
+//	@Tags			queue
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Group ID"
+//	@Success		200	{array}		store.Job
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/groups/{id}/queue [get]
 func (s *server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "id")
 
@@ -557,6 +693,19 @@ func (s *server) handleGetQueue(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, jobs)
 }
 
+// handleGetRunners godoc
+//
+//	@Summary		Get group runners
+//	@Description	Returns all runners matching the group's runner labels
+//	@Tags			runners
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Group ID"
+//	@Success		200	{array}		store.Runner
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/groups/{id}/runners [get]
 func (s *server) handleGetRunners(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "id")
 
@@ -589,6 +738,17 @@ func (s *server) handleGetRunners(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, runners)
 }
 
+// handleListRunners godoc
+//
+//	@Summary		List all runners
+//	@Description	Returns all GitHub Actions runners across all groups
+//	@Tags			runners
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Success		200	{array}		store.Runner
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/runners [get]
 func (s *server) handleListRunners(w http.ResponseWriter, r *http.Request) {
 	runners, err := s.store.ListRunners(r.Context())
 	if err != nil {
@@ -609,24 +769,40 @@ func (s *server) handleListRunners(w http.ResponseWriter, r *http.Request) {
 // Job Handlers
 // ============================================================================
 
-type addJobRequest struct {
-	TemplateID   string            `json:"template_id,omitempty"`
+// AddJobRequest is the request body for adding a job to the queue.
+type AddJobRequest struct {
+	TemplateID   string            `json:"template_id,omitempty" example:"my-template"`
 	Inputs       map[string]string `json:"inputs"`
-	AutoRequeue  bool              `json:"auto_requeue"`
-	RequeueLimit *int              `json:"requeue_limit"`
+	AutoRequeue  bool              `json:"auto_requeue" example:"false"`
+	RequeueLimit *int              `json:"requeue_limit" example:"3"`
 	// Manual job fields (used when template_id is empty).
-	Name       string            `json:"name,omitempty"`
-	Owner      string            `json:"owner,omitempty"`
-	Repo       string            `json:"repo,omitempty"`
-	WorkflowID string            `json:"workflow_id,omitempty"`
-	Ref        string            `json:"ref,omitempty"`
+	Name       string            `json:"name,omitempty" example:"Manual Job"`
+	Owner      string            `json:"owner,omitempty" example:"ethpandaops"`
+	Repo       string            `json:"repo,omitempty" example:"dispatchoor"`
+	WorkflowID string            `json:"workflow_id,omitempty" example:"deploy.yml"`
+	Ref        string            `json:"ref,omitempty" example:"main"`
 	Labels     map[string]string `json:"labels,omitempty"`
 }
 
+// handleAddJob godoc
+//
+//	@Summary		Add job to queue
+//	@Description	Adds a new job to the group's queue, either from a template or with manual configuration
+//	@Tags			jobs
+//	@Security		BearerAuth
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string			true	"Group ID"
+//	@Param			body	body		AddJobRequest	true	"Job configuration"
+//	@Success		201		{object}	store.Job
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		403		{object}	ErrorResponse
+//	@Router			/groups/{id}/queue [post]
 func (s *server) handleAddJob(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "id")
 
-	var req addJobRequest
+	var req AddJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 
@@ -671,6 +847,19 @@ func (s *server) handleAddJob(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusCreated, job)
 }
 
+// handleGetJob godoc
+//
+//	@Summary		Get job
+//	@Description	Returns a single job by ID
+//	@Tags			jobs
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Job ID"
+//	@Success		200	{object}	store.Job
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/jobs/{id} [get]
 func (s *server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
@@ -691,20 +880,37 @@ func (s *server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, job)
 }
 
-type updateJobRequest struct {
+// UpdateJobRequest is the request body for updating a job.
+type UpdateJobRequest struct {
 	Inputs     map[string]string `json:"inputs"`
-	Name       *string           `json:"name,omitempty"`
-	Owner      *string           `json:"owner,omitempty"`
-	Repo       *string           `json:"repo,omitempty"`
-	WorkflowID *string           `json:"workflow_id,omitempty"`
-	Ref        *string           `json:"ref,omitempty"`
+	Name       *string           `json:"name,omitempty" example:"Updated Job"`
+	Owner      *string           `json:"owner,omitempty" example:"ethpandaops"`
+	Repo       *string           `json:"repo,omitempty" example:"dispatchoor"`
+	WorkflowID *string           `json:"workflow_id,omitempty" example:"deploy.yml"`
+	Ref        *string           `json:"ref,omitempty" example:"main"`
 	Labels     map[string]string `json:"labels,omitempty"`
 }
 
+// handleUpdateJob godoc
+//
+//	@Summary		Update job
+//	@Description	Updates job configuration (inputs, name, owner, repo, workflow_id, ref, labels)
+//	@Tags			jobs
+//	@Security		BearerAuth
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string				true	"Job ID"
+//	@Param			body	body		UpdateJobRequest	true	"Job updates"
+//	@Success		200		{object}	store.Job
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		403		{object}	ErrorResponse
+//	@Failure		404		{object}	ErrorResponse
+//	@Router			/jobs/{id} [put]
 func (s *server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
-	var req updateJobRequest
+	var req UpdateJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 
@@ -732,6 +938,19 @@ func (s *server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, job)
 }
 
+// handleDeleteJob godoc
+//
+//	@Summary		Delete job
+//	@Description	Removes a job from the queue (requires admin)
+//	@Tags			jobs
+//	@Security		BearerAuth
+//	@Param			id	path	string	true	"Job ID"
+//	@Success		204	"Job deleted successfully"
+//	@Failure		400	{object}	ErrorResponse
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Router			/jobs/{id} [delete]
 func (s *server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
@@ -745,6 +964,20 @@ func (s *server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handlePauseJob godoc
+//
+//	@Summary		Pause job
+//	@Description	Pauses a job in the queue (requires admin)
+//	@Tags			jobs
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Job ID"
+//	@Success		200	{object}	store.Job
+//	@Failure		400	{object}	ErrorResponse
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Router			/jobs/{id}/pause [post]
 func (s *server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
@@ -759,6 +992,20 @@ func (s *server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, job)
 }
 
+// handleUnpauseJob godoc
+//
+//	@Summary		Unpause job
+//	@Description	Resumes a paused job (requires admin)
+//	@Tags			jobs
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Job ID"
+//	@Success		200	{object}	store.Job
+//	@Failure		400	{object}	ErrorResponse
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Router			/jobs/{id}/unpause [post]
 func (s *server) handleUnpauseJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
@@ -773,6 +1020,21 @@ func (s *server) handleUnpauseJob(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, job)
 }
 
+// handleCancelJob godoc
+//
+//	@Summary		Cancel job
+//	@Description	Cancels a triggered or running job (requires admin). If running on GitHub, also cancels the workflow run.
+//	@Tags			jobs
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Job ID"
+//	@Success		200	{object}	store.Job
+//	@Failure		400	{object}	ErrorResponse
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/jobs/{id}/cancel [post]
 func (s *server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
@@ -891,6 +1153,20 @@ func (s *server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, job)
 }
 
+// handleDisableAutoRequeue godoc
+//
+//	@Summary		Disable auto-requeue
+//	@Description	Disables auto-requeue for a job (requires admin)
+//	@Tags			jobs
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id	path		string	true	"Job ID"
+//	@Success		200	{object}	store.Job
+//	@Failure		400	{object}	ErrorResponse
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Router			/jobs/{id}/disable-requeue [post]
 func (s *server) handleDisableAutoRequeue(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
@@ -905,15 +1181,32 @@ func (s *server) handleDisableAutoRequeue(w http.ResponseWriter, r *http.Request
 	s.writeJSON(w, http.StatusOK, job)
 }
 
-type updateAutoRequeueRequest struct {
-	AutoRequeue  bool `json:"auto_requeue"`
-	RequeueLimit *int `json:"requeue_limit"`
+// UpdateAutoRequeueRequest is the request body for updating auto-requeue settings.
+type UpdateAutoRequeueRequest struct {
+	AutoRequeue  bool `json:"auto_requeue" example:"true"`
+	RequeueLimit *int `json:"requeue_limit" example:"5"`
 }
 
+// handleUpdateAutoRequeue godoc
+//
+//	@Summary		Update auto-requeue settings
+//	@Description	Enables or disables auto-requeue for a job and optionally sets a requeue limit
+//	@Tags			jobs
+//	@Security		BearerAuth
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string						true	"Job ID"
+//	@Param			body	body		UpdateAutoRequeueRequest	true	"Auto-requeue settings"
+//	@Success		200		{object}	store.Job
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		403		{object}	ErrorResponse
+//	@Failure		404		{object}	ErrorResponse
+//	@Router			/jobs/{id}/auto-requeue [put]
 func (s *server) handleUpdateAutoRequeue(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 
-	var req updateAutoRequeueRequest
+	var req UpdateAutoRequeueRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 
@@ -931,14 +1224,30 @@ func (s *server) handleUpdateAutoRequeue(w http.ResponseWriter, r *http.Request)
 	s.writeJSON(w, http.StatusOK, job)
 }
 
-type reorderRequest struct {
-	JobIDs []string `json:"job_ids"`
+// ReorderQueueRequest is the request body for reordering the job queue.
+type ReorderQueueRequest struct {
+	JobIDs []string `json:"job_ids" example:"job-1,job-2,job-3"`
 }
 
+// handleReorderQueue godoc
+//
+//	@Summary		Reorder queue
+//	@Description	Reorders jobs in the queue by specifying the desired order of job IDs
+//	@Tags			queue
+//	@Security		BearerAuth
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path	string					true	"Group ID"
+//	@Param			body	body	ReorderQueueRequest		true	"New job order"
+//	@Success		204		"Queue reordered successfully"
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		403		{object}	ErrorResponse
+//	@Router			/groups/{id}/queue/reorder [put]
 func (s *server) handleReorderQueue(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "id")
 
-	var req reorderRequest
+	var req ReorderQueueRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 
@@ -1013,14 +1322,29 @@ type SystemStatusResponse struct {
 	Version   VersionInfo     `json:"version"`
 }
 
-// historyResponse wraps the paginated history response.
-type historyResponse struct {
+// HistoryResponse wraps the paginated history response.
+type HistoryResponse struct {
 	Jobs       []*store.Job `json:"jobs"`
-	HasMore    bool         `json:"has_more"`
-	NextCursor string       `json:"next_cursor,omitempty"`
-	TotalCount int          `json:"total_count"`
+	HasMore    bool         `json:"has_more" example:"true"`
+	NextCursor string       `json:"next_cursor,omitempty" example:"2024-01-15T10:30:00Z"`
+	TotalCount int          `json:"total_count" example:"150"`
 }
 
+// handleGetHistory godoc
+//
+//	@Summary		Get job history
+//	@Description	Returns paginated history of completed, failed, and cancelled jobs
+//	@Tags			history
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id		path		string	true	"Group ID"
+//	@Param			limit	query		int		false	"Number of jobs to return (max 100)"	default(50)
+//	@Param			before	query		string	false	"Cursor for pagination (RFC3339 timestamp)"
+//	@Param			status	query		string	false	"Filter by status (comma-separated: completed,failed,cancelled)"
+//	@Success		200		{object}	HistoryResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Router			/groups/{id}/history [get]
 func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "id")
 
@@ -1084,7 +1408,7 @@ func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := historyResponse{
+	resp := HistoryResponse{
 		Jobs:       result.Jobs,
 		HasMore:    result.HasMore,
 		TotalCount: result.TotalCount,
@@ -1101,32 +1425,49 @@ func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, resp)
 }
 
-// historyStatsResponse wraps the aggregated history statistics.
-type historyStatsResponse struct {
-	Buckets []historyStatsBucket `json:"buckets"`
-	Range   historyStatsRange    `json:"range"`
-	Totals  historyStatsTotals   `json:"totals"`
+// HistoryStatsResponse wraps the aggregated history statistics.
+type HistoryStatsResponse struct {
+	Buckets []HistoryStatsBucket `json:"buckets"`
+	Range   HistoryStatsRange    `json:"range"`
+	Totals  HistoryStatsTotals   `json:"totals"`
 }
 
-type historyStatsBucket struct {
-	Timestamp string `json:"timestamp"`
-	Completed int    `json:"completed"`
-	Failed    int    `json:"failed"`
-	Cancelled int    `json:"cancelled"`
+// HistoryStatsBucket represents job counts in a time bucket.
+type HistoryStatsBucket struct {
+	Timestamp string `json:"timestamp" example:"2024-01-15T10:00:00Z"`
+	Completed int    `json:"completed" example:"5"`
+	Failed    int    `json:"failed" example:"1"`
+	Cancelled int    `json:"cancelled" example:"0"`
 }
 
-type historyStatsRange struct {
-	Start          string `json:"start"`
-	End            string `json:"end"`
-	BucketDuration string `json:"bucket_duration"`
+// HistoryStatsRange describes the time range of the statistics.
+type HistoryStatsRange struct {
+	Start          string `json:"start" example:"2024-01-15T00:00:00Z"`
+	End            string `json:"end" example:"2024-01-16T00:00:00Z"`
+	BucketDuration string `json:"bucket_duration" example:"1h0m0s"`
 }
 
-type historyStatsTotals struct {
-	Completed int `json:"completed"`
-	Failed    int `json:"failed"`
-	Cancelled int `json:"cancelled"`
+// HistoryStatsTotals contains total counts across all buckets.
+type HistoryStatsTotals struct {
+	Completed int `json:"completed" example:"120"`
+	Failed    int `json:"failed" example:"15"`
+	Cancelled int `json:"cancelled" example:"5"`
 }
 
+// handleGetHistoryStats godoc
+//
+//	@Summary		Get history statistics
+//	@Description	Returns aggregated job statistics over a time range
+//	@Tags			history
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Param			id		path		string	true	"Group ID"
+//	@Param			range	query		string	false	"Time range (1h, 6h, 24h, 7d, 30d, auto)"	default(auto)
+//	@Success		200		{object}	HistoryStatsResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		500		{object}	ErrorResponse
+//	@Router			/groups/{id}/history/stats [get]
 func (s *server) handleGetHistoryStats(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "id")
 
@@ -1215,9 +1556,9 @@ func (s *server) handleGetHistoryStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert to response format with string timestamps.
-	respBuckets := make([]historyStatsBucket, len(result.Buckets))
+	respBuckets := make([]HistoryStatsBucket, len(result.Buckets))
 	for i, bucket := range result.Buckets {
-		respBuckets[i] = historyStatsBucket{
+		respBuckets[i] = HistoryStatsBucket{
 			Timestamp: bucket.Timestamp.Format(time.RFC3339),
 			Completed: bucket.Completed,
 			Failed:    bucket.Failed,
@@ -1225,14 +1566,14 @@ func (s *server) handleGetHistoryStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp := historyStatsResponse{
+	resp := HistoryStatsResponse{
 		Buckets: respBuckets,
-		Range: historyStatsRange{
+		Range: HistoryStatsRange{
 			Start:          result.Range.Start.Format(time.RFC3339),
 			End:            result.Range.End.Format(time.RFC3339),
 			BucketDuration: result.Range.BucketDuration.String(),
 		},
-		Totals: historyStatsTotals{
+		Totals: HistoryStatsTotals{
 			Completed: result.Totals.Completed,
 			Failed:    result.Totals.Failed,
 			Cancelled: result.Totals.Cancelled,
@@ -1242,12 +1583,31 @@ func (s *server) handleGetHistoryStats(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, resp)
 }
 
+// handleRefreshRunners godoc
+//
+//	@Summary		Refresh runners
+//	@Description	Triggers a refresh of runner information from GitHub (requires admin)
+//	@Tags			runners
+//	@Security		BearerAuth
+//	@Success		204	"Runners refresh initiated"
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Router			/runners/refresh [post]
 func (s *server) handleRefreshRunners(w http.ResponseWriter, _ *http.Request) {
 	// TODO: Implement runner refresh by calling poller.ForceRefresh()
 	// For now, just return success.
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleWebSocket godoc
+//
+//	@Summary		WebSocket connection
+//	@Description	Establishes a WebSocket connection for real-time job and runner updates
+//	@Tags			websocket
+//	@Param			token	query	string	false	"Authentication token"
+//	@Success		101		"WebSocket connection established"
+//	@Failure		401		{object}	ErrorResponse
+//	@Router			/ws [get]
 func (s *server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	ServeWs(s.hub, s.auth, s.cfg.Server.CORSOrigins, w, r)
 }
@@ -1256,18 +1616,32 @@ func (s *server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // Auth Handlers
 // ============================================================================
 
-type loginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+// LoginRequest is the request body for username/password login.
+type LoginRequest struct {
+	Username string `json:"username" example:"admin"`
+	Password string `json:"password" example:"password123"`
 }
 
-type loginResponse struct {
-	Token string      `json:"token"`
+// LoginResponse is the response for successful authentication.
+type LoginResponse struct {
+	Token string      `json:"token" example:"eyJhbGciOiJIUzI1NiIs..."`
 	User  *store.User `json:"user"`
 }
 
+// handleLogin godoc
+//
+//	@Summary		Login with username and password
+//	@Description	Authenticates a user with username and password, returns JWT token
+//	@Tags			auth
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		LoginRequest	true	"Login credentials"
+//	@Success		200		{object}	LoginResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Router			/auth/login [post]
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var req loginRequest
+	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 
@@ -1299,12 +1673,21 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(s.cfg.Auth.SessionTTL.Seconds()),
 	})
 
-	s.writeJSON(w, http.StatusOK, loginResponse{
+	s.writeJSON(w, http.StatusOK, LoginResponse{
 		Token: token,
 		User:  user,
 	})
 }
 
+// handleLogout godoc
+//
+//	@Summary		Logout
+//	@Description	Logs out the current user and invalidates the session
+//	@Tags			auth
+//	@Security		BearerAuth
+//	@Success		204	"Logged out successfully"
+//	@Failure		401	{object}	ErrorResponse
+//	@Router			/auth/logout [post]
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// Get token from cookie or header.
 	token := ""
@@ -1340,6 +1723,16 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleMe godoc
+//
+//	@Summary		Get current user
+//	@Description	Returns the currently authenticated user's information
+//	@Tags			auth
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Success		200	{object}	store.User
+//	@Failure		401	{object}	ErrorResponse
+//	@Router			/auth/me [get]
 func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	if user == nil {
@@ -1351,6 +1744,15 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, user)
 }
 
+// handleGitHubAuth godoc
+//
+//	@Summary		GitHub OAuth initiation
+//	@Description	Initiates GitHub OAuth flow by redirecting to GitHub authorization page
+//	@Tags			auth
+//	@Param			state	query	string	false	"OAuth state for CSRF protection"
+//	@Success		307		"Redirect to GitHub"
+//	@Failure		404		{object}	ErrorResponse	"GitHub auth not enabled"
+//	@Router			/auth/github [get]
 func (s *server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Auth.GitHub.Enabled {
 		s.writeError(w, http.StatusNotFound, "GitHub auth is not enabled")
@@ -1371,6 +1773,21 @@ func (s *server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
+// handleGitHubCallback godoc
+//
+//	@Summary		GitHub OAuth callback
+//	@Description	Handles GitHub OAuth callback and completes authentication
+//	@Tags			auth
+//	@Produce		json
+//	@Param			code		query		string	true	"OAuth authorization code"
+//	@Param			state		query		string	false	"OAuth state for CSRF validation"
+//	@Param			redirect	query		string	false	"URL to redirect after successful auth"
+//	@Success		200			{object}	LoginResponse	"JSON response for API clients"
+//	@Success		307			"Redirect for browser clients"
+//	@Failure		400			{object}	ErrorResponse
+//	@Failure		401			{object}	ErrorResponse
+//	@Failure		404			{object}	ErrorResponse	"GitHub auth not enabled"
+//	@Router			/auth/github/callback [get]
 func (s *server) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Auth.GitHub.Enabled {
 		s.writeError(w, http.StatusNotFound, "GitHub auth is not enabled")
@@ -1421,7 +1838,7 @@ func (s *server) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Check if client wants JSON response (API clients) or redirect (browsers).
 	if r.Header.Get("Accept") == "application/json" {
-		s.writeJSON(w, http.StatusOK, loginResponse{
+		s.writeJSON(w, http.StatusOK, LoginResponse{
 			Token: token,
 			User:  user,
 		})
@@ -1496,7 +1913,7 @@ func (s *server) handleExchangeCode(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(s.cfg.Auth.SessionTTL.Seconds()),
 	})
 
-	s.writeJSON(w, http.StatusOK, loginResponse{
+	s.writeJSON(w, http.StatusOK, LoginResponse{
 		Token: token,
 		User:  user,
 	})

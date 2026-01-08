@@ -1,0 +1,1464 @@
+basePath: /api/v1
+definitions:
+  github_com_ethpandaops_dispatchoor_pkg_store.AuthProvider:
+    enum:
+    - basic
+    - github
+    type: string
+    x-enum-varnames:
+    - AuthProviderBasic
+    - AuthProviderGitHub
+  github_com_ethpandaops_dispatchoor_pkg_store.Group:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      paused:
+        type: boolean
+      runner_labels:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+    type: object
+  github_com_ethpandaops_dispatchoor_pkg_store.Job:
+    properties:
+      auto_requeue:
+        type: boolean
+      completed_at:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      error_message:
+        type: string
+      group_id:
+        type: string
+      id:
+        type: string
+      inputs:
+        additionalProperties:
+          type: string
+        type: object
+      labels:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        description: Override fields (nil/empty means use template value).
+        type: string
+      owner:
+        type: string
+      paused:
+        type: boolean
+      position:
+        type: integer
+      priority:
+        type: integer
+      ref:
+        type: string
+      repo:
+        type: string
+      requeue_count:
+        type: integer
+      requeue_limit:
+        type: integer
+      run_id:
+        type: integer
+      run_url:
+        type: string
+      runner_id:
+        type: integer
+      runner_name:
+        type: string
+      status:
+        $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.JobStatus'
+      template_id:
+        type: string
+      triggered_at:
+        type: string
+      updated_at:
+        type: string
+      workflow_id:
+        type: string
+    type: object
+  github_com_ethpandaops_dispatchoor_pkg_store.JobStatus:
+    enum:
+    - pending
+    - triggered
+    - running
+    - completed
+    - failed
+    - cancelled
+    type: string
+    x-enum-varnames:
+    - JobStatusPending
+    - JobStatusTriggered
+    - JobStatusRunning
+    - JobStatusCompleted
+    - JobStatusFailed
+    - JobStatusCancelled
+  github_com_ethpandaops_dispatchoor_pkg_store.JobTemplate:
+    properties:
+      created_at:
+        type: string
+      default_inputs:
+        additionalProperties:
+          type: string
+        type: object
+      group_id:
+        type: string
+      id:
+        type: string
+      in_config:
+        type: boolean
+      labels:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        type: string
+      owner:
+        type: string
+      ref:
+        type: string
+      repo:
+        type: string
+      updated_at:
+        type: string
+      workflow_id:
+        type: string
+    type: object
+  github_com_ethpandaops_dispatchoor_pkg_store.Role:
+    enum:
+    - readonly
+    - admin
+    type: string
+    x-enum-varnames:
+    - RoleReadOnly
+    - RoleAdmin
+  github_com_ethpandaops_dispatchoor_pkg_store.Runner:
+    properties:
+      busy:
+        type: boolean
+      created_at:
+        type: string
+      id:
+        type: integer
+      labels:
+        items:
+          type: string
+        type: array
+      last_seen_at:
+        type: string
+      name:
+        type: string
+      os:
+        type: string
+      status:
+        $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.RunnerStatus'
+      updated_at:
+        type: string
+    type: object
+  github_com_ethpandaops_dispatchoor_pkg_store.RunnerStatus:
+    enum:
+    - online
+    - offline
+    type: string
+    x-enum-varnames:
+    - RunnerStatusOnline
+    - RunnerStatusOffline
+  github_com_ethpandaops_dispatchoor_pkg_store.User:
+    properties:
+      auth_provider:
+        $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.AuthProvider'
+      created_at:
+        type: string
+      github_id:
+        type: string
+      id:
+        type: string
+      role:
+        $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Role'
+      updated_at:
+        type: string
+      username:
+        type: string
+    type: object
+  pkg_api.AddJobRequest:
+    properties:
+      auto_requeue:
+        example: false
+        type: boolean
+      inputs:
+        additionalProperties:
+          type: string
+        type: object
+      labels:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        description: Manual job fields (used when template_id is empty).
+        example: Manual Job
+        type: string
+      owner:
+        example: ethpandaops
+        type: string
+      ref:
+        example: main
+        type: string
+      repo:
+        example: dispatchoor
+        type: string
+      requeue_limit:
+        example: 3
+        type: integer
+      template_id:
+        example: my-template
+        type: string
+      workflow_id:
+        example: deploy.yml
+        type: string
+    type: object
+  pkg_api.ComponentStatus:
+    enum:
+    - healthy
+    - degraded
+    - unhealthy
+    type: string
+    x-enum-varnames:
+    - ComponentStatusHealthy
+    - ComponentStatusDegraded
+    - ComponentStatusUnhealthy
+  pkg_api.DatabaseStatus:
+    properties:
+      error:
+        type: string
+      latency:
+        type: string
+      status:
+        $ref: '#/definitions/pkg_api.ComponentStatus'
+    type: object
+  pkg_api.ErrorResponse:
+    properties:
+      error:
+        example: Something went wrong
+        type: string
+    type: object
+  pkg_api.GitHubStatus:
+    properties:
+      rate_limit_remaining:
+        type: integer
+      rate_limit_reset:
+        type: string
+      reset_in:
+        type: string
+      status:
+        $ref: '#/definitions/pkg_api.ComponentStatus'
+    type: object
+  pkg_api.GroupWithStats:
+    properties:
+      busy_runners:
+        example: 2
+        type: integer
+      created_at:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      idle_runners:
+        example: 3
+        type: integer
+      name:
+        type: string
+      paused:
+        type: boolean
+      queued_jobs:
+        example: 5
+        type: integer
+      runner_labels:
+        items:
+          type: string
+        type: array
+      running_jobs:
+        example: 2
+        type: integer
+      template_count:
+        example: 10
+        type: integer
+      total_runners:
+        example: 5
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  pkg_api.HealthResponse:
+    properties:
+      status:
+        example: ok
+        type: string
+    type: object
+  pkg_api.HistoryResponse:
+    properties:
+      has_more:
+        example: true
+        type: boolean
+      jobs:
+        items:
+          $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+        type: array
+      next_cursor:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+      total_count:
+        example: 150
+        type: integer
+    type: object
+  pkg_api.HistoryStatsBucket:
+    properties:
+      cancelled:
+        example: 0
+        type: integer
+      completed:
+        example: 5
+        type: integer
+      failed:
+        example: 1
+        type: integer
+      timestamp:
+        example: "2024-01-15T10:00:00Z"
+        type: string
+    type: object
+  pkg_api.HistoryStatsRange:
+    properties:
+      bucket_duration:
+        example: 1h0m0s
+        type: string
+      end:
+        example: "2024-01-16T00:00:00Z"
+        type: string
+      start:
+        example: "2024-01-15T00:00:00Z"
+        type: string
+    type: object
+  pkg_api.HistoryStatsResponse:
+    properties:
+      buckets:
+        items:
+          $ref: '#/definitions/pkg_api.HistoryStatsBucket'
+        type: array
+      range:
+        $ref: '#/definitions/pkg_api.HistoryStatsRange'
+      totals:
+        $ref: '#/definitions/pkg_api.HistoryStatsTotals'
+    type: object
+  pkg_api.HistoryStatsTotals:
+    properties:
+      cancelled:
+        example: 5
+        type: integer
+      completed:
+        example: 120
+        type: integer
+      failed:
+        example: 15
+        type: integer
+    type: object
+  pkg_api.LoginRequest:
+    properties:
+      password:
+        example: password123
+        type: string
+      username:
+        example: admin
+        type: string
+    type: object
+  pkg_api.LoginResponse:
+    properties:
+      token:
+        example: eyJhbGciOiJIUzI1NiIs...
+        type: string
+      user:
+        $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.User'
+    type: object
+  pkg_api.QueueStats:
+    properties:
+      pending_jobs:
+        type: integer
+      running_jobs:
+        type: integer
+      triggered_jobs:
+        type: integer
+    type: object
+  pkg_api.ReorderQueueRequest:
+    properties:
+      job_ids:
+        example:
+        - job-1
+        - job-2
+        - job-3
+        items:
+          type: string
+        type: array
+    type: object
+  pkg_api.SystemStatusResponse:
+    properties:
+      database:
+        $ref: '#/definitions/pkg_api.DatabaseStatus'
+      github:
+        $ref: '#/definitions/pkg_api.GitHubStatus'
+      queue:
+        $ref: '#/definitions/pkg_api.QueueStats'
+      status:
+        $ref: '#/definitions/pkg_api.ComponentStatus'
+      timestamp:
+        type: string
+      version:
+        $ref: '#/definitions/pkg_api.VersionInfo'
+    type: object
+  pkg_api.UpdateAutoRequeueRequest:
+    properties:
+      auto_requeue:
+        example: true
+        type: boolean
+      requeue_limit:
+        example: 5
+        type: integer
+    type: object
+  pkg_api.UpdateJobRequest:
+    properties:
+      inputs:
+        additionalProperties:
+          type: string
+        type: object
+      labels:
+        additionalProperties:
+          type: string
+        type: object
+      name:
+        example: Updated Job
+        type: string
+      owner:
+        example: ethpandaops
+        type: string
+      ref:
+        example: main
+        type: string
+      repo:
+        example: dispatchoor
+        type: string
+      workflow_id:
+        example: deploy.yml
+        type: string
+    type: object
+  pkg_api.VersionInfo:
+    properties:
+      build_date:
+        type: string
+      git_commit:
+        type: string
+      version:
+        type: string
+    type: object
+host: localhost:9090
+info:
+  contact:
+    name: ethPandaOps
+    url: https://github.com/ethpandaops/dispatchoor
+  description: |-
+    GitHub Actions workflow dispatch queue management API.
+    Dispatchoor helps you manage and schedule GitHub Actions workflow dispatches
+    across multiple runner pools with fine-grained control.
+  license:
+    name: MIT
+    url: https://github.com/ethpandaops/dispatchoor/blob/main/LICENSE
+  title: Dispatchoor API
+  version: "1.0"
+paths:
+  /auth/github:
+    get:
+      description: Initiates GitHub OAuth flow by redirecting to GitHub authorization
+        page
+      parameters:
+      - description: OAuth state for CSRF protection
+        in: query
+        name: state
+        type: string
+      responses:
+        "307":
+          description: Redirect to GitHub
+        "404":
+          description: GitHub auth not enabled
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      summary: GitHub OAuth initiation
+      tags:
+      - auth
+  /auth/github/callback:
+    get:
+      description: Handles GitHub OAuth callback and completes authentication
+      parameters:
+      - description: OAuth authorization code
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: OAuth state for CSRF validation
+        in: query
+        name: state
+        type: string
+      - description: URL to redirect after successful auth
+        in: query
+        name: redirect
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: JSON response for API clients
+          schema:
+            $ref: '#/definitions/pkg_api.LoginResponse'
+        "307":
+          description: Redirect for browser clients
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: GitHub auth not enabled
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      summary: GitHub OAuth callback
+      tags:
+      - auth
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user with username and password, returns JWT token
+      parameters:
+      - description: Login credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_api.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_api.LoginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      summary: Login with username and password
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      description: Logs out the current user and invalidates the session
+      responses:
+        "204":
+          description: Logged out successfully
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Logout
+      tags:
+      - auth
+  /auth/me:
+    get:
+      description: Returns the currently authenticated user's information
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.User'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get current user
+      tags:
+      - auth
+  /groups:
+    get:
+      description: Returns all configured groups with statistics
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/pkg_api.GroupWithStats'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List groups
+      tags:
+      - groups
+  /groups/{id}:
+    get:
+      description: Returns a single group by ID
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Group'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get group
+      tags:
+      - groups
+  /groups/{id}/history:
+    get:
+      description: Returns paginated history of completed, failed, and cancelled jobs
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: 50
+        description: Number of jobs to return (max 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Cursor for pagination (RFC3339 timestamp)
+        in: query
+        name: before
+        type: string
+      - description: 'Filter by status (comma-separated: completed,failed,cancelled)'
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_api.HistoryResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get job history
+      tags:
+      - history
+  /groups/{id}/history/stats:
+    get:
+      description: Returns aggregated job statistics over a time range
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - default: auto
+        description: Time range (1h, 6h, 24h, 7d, 30d, auto)
+        in: query
+        name: range
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_api.HistoryStatsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get history statistics
+      tags:
+      - history
+  /groups/{id}/pause:
+    post:
+      description: Pauses job dispatching for a group (requires admin)
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Group'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Pause group
+      tags:
+      - groups
+  /groups/{id}/queue:
+    get:
+      description: Returns all pending, triggered, and running jobs in the group's
+        queue
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get queue
+      tags:
+      - queue
+    post:
+      consumes:
+      - application/json
+      description: Adds a new job to the group's queue, either from a template or
+        with manual configuration
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Job configuration
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_api.AddJobRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Add job to queue
+      tags:
+      - jobs
+  /groups/{id}/queue/reorder:
+    put:
+      consumes:
+      - application/json
+      description: Reorders jobs in the queue by specifying the desired order of job
+        IDs
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New job order
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_api.ReorderQueueRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Queue reordered successfully
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reorder queue
+      tags:
+      - queue
+  /groups/{id}/runners:
+    get:
+      description: Returns all runners matching the group's runner labels
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Runner'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get group runners
+      tags:
+      - runners
+  /groups/{id}/templates:
+    get:
+      description: Returns all job templates for a group
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.JobTemplate'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List job templates
+      tags:
+      - templates
+  /groups/{id}/unpause:
+    post:
+      description: Resumes job dispatching for a group (requires admin)
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Group'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Unpause group
+      tags:
+      - groups
+  /health:
+    get:
+      description: Returns the health status of the API server
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_api.HealthResponse'
+      summary: Health check
+      tags:
+      - system
+  /jobs/{id}:
+    delete:
+      description: Removes a job from the queue (requires admin)
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Job deleted successfully
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete job
+      tags:
+      - jobs
+    get:
+      description: Returns a single job by ID
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get job
+      tags:
+      - jobs
+    put:
+      consumes:
+      - application/json
+      description: Updates job configuration (inputs, name, owner, repo, workflow_id,
+        ref, labels)
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Job updates
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_api.UpdateJobRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update job
+      tags:
+      - jobs
+  /jobs/{id}/auto-requeue:
+    put:
+      consumes:
+      - application/json
+      description: Enables or disables auto-requeue for a job and optionally sets
+        a requeue limit
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Auto-requeue settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_api.UpdateAutoRequeueRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update auto-requeue settings
+      tags:
+      - jobs
+  /jobs/{id}/cancel:
+    post:
+      description: Cancels a triggered or running job (requires admin). If running
+        on GitHub, also cancels the workflow run.
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Cancel job
+      tags:
+      - jobs
+  /jobs/{id}/disable-requeue:
+    post:
+      description: Disables auto-requeue for a job (requires admin)
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Disable auto-requeue
+      tags:
+      - jobs
+  /jobs/{id}/pause:
+    post:
+      description: Pauses a job in the queue (requires admin)
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Pause job
+      tags:
+      - jobs
+  /jobs/{id}/unpause:
+    post:
+      description: Resumes a paused job (requires admin)
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Job'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Unpause job
+      tags:
+      - jobs
+  /openapi.json:
+    get:
+      description: Returns the OpenAPI 3.0 specification for the API
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OpenAPI specification
+          schema:
+            type: object
+      summary: OpenAPI specification
+      tags:
+      - system
+  /runners:
+    get:
+      description: Returns all GitHub Actions runners across all groups
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Runner'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List all runners
+      tags:
+      - runners
+  /runners/refresh:
+    post:
+      description: Triggers a refresh of runner information from GitHub (requires
+        admin)
+      responses:
+        "204":
+          description: Runners refresh initiated
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Refresh runners
+      tags:
+      - runners
+  /status:
+    get:
+      description: Returns comprehensive system status including database, GitHub
+        API, and queue statistics
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_api.SystemStatusResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: System status
+      tags:
+      - system
+  /templates/{id}:
+    get:
+      description: Returns a single job template by ID
+      parameters:
+      - description: Template ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.JobTemplate'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get job template
+      tags:
+      - templates
+  /ws:
+    get:
+      description: Establishes a WebSocket connection for real-time job and runner
+        updates
+      parameters:
+      - description: Authentication token
+        in: query
+        name: token
+        type: string
+      responses:
+        "101":
+          description: WebSocket connection established
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      summary: WebSocket connection
+      tags:
+      - websocket
+securityDefinitions:
+  BearerAuth:
+    description: 'Bearer token authentication. Format: "Bearer {token}"'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

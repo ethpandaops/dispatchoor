@@ -7,6 +7,7 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { GroupPage } from './pages/GroupPage';
 import { RunnersPage } from './pages/RunnersPage';
+import { ApiDocsPage } from './pages/ApiDocsPage';
 import { useAuthStore } from './stores/authStore';
 import { api } from './api/client';
 
@@ -74,6 +75,7 @@ function AppRoutes() {
         <Route index element={<DashboardPage />} />
         <Route path="groups/:id" element={<GroupPage />} />
         <Route path="runners" element={<RunnersPage />} />
+        <Route path="api-docs" element={<ApiDocsPage />} />
       </Route>
     </Routes>
   );

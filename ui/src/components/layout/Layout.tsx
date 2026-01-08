@@ -1,10 +1,15 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { useUIStore } from '../../stores/uiStore';
 
+// Routes that should take up full viewport without padding
+const fullBleedRoutes = ['/api-docs'];
+
 export function Layout() {
   const { sidebarCollapsed } = useUIStore();
+  const location = useLocation();
+  const isFullBleed = fullBleedRoutes.includes(location.pathname);
 
   return (
     <div className="min-h-dvh bg-zinc-950">
@@ -15,9 +20,13 @@ export function Layout() {
           sidebarCollapsed ? 'ml-0' : 'ml-64'
         }`}
       >
-        <div className="p-6">
+        {isFullBleed ? (
           <Outlet />
-        </div>
+        ) : (
+          <div className="p-6">
+            <Outlet />
+          </div>
+        )}
       </main>
     </div>
   );
