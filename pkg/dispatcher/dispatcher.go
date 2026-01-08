@@ -112,6 +112,32 @@ func (d *dispatcher) notifyRunnerChange(runner *store.Runner) {
 	}
 }
 
+// getEffectiveWorkflowParams returns the effective workflow parameters,
+// preferring job overrides over template defaults.
+func getEffectiveWorkflowParams(job *store.Job, template *store.JobTemplate) (owner, repo, workflowID, ref string) {
+	owner = template.Owner
+	if job.Owner != nil && *job.Owner != "" {
+		owner = *job.Owner
+	}
+
+	repo = template.Repo
+	if job.Repo != nil && *job.Repo != "" {
+		repo = *job.Repo
+	}
+
+	workflowID = template.WorkflowID
+	if job.WorkflowID != nil && *job.WorkflowID != "" {
+		workflowID = *job.WorkflowID
+	}
+
+	ref = template.Ref
+	if job.Ref != nil && *job.Ref != "" {
+		ref = *job.Ref
+	}
+
+	return
+}
+
 // dispatchLoop is the main dispatch loop that matches pending jobs to idle runners.
 func (d *dispatcher) dispatchLoop(ctx context.Context) {
 	defer d.wg.Done()
@@ -229,23 +255,26 @@ func (d *dispatcher) dispatchForGroup(ctx context.Context, group *store.Group) e
 		return fmt.Errorf("template not found: %s", job.TemplateID)
 	}
 
+	// Get effective workflow parameters (job override or template default).
+	owner, repo, workflowID, ref := getEffectiveWorkflowParams(job, template)
+
 	log.WithFields(logrus.Fields{
 		"job_id":   job.ID,
 		"template": template.Name,
 		"runner":   idleRunner.Name,
-		"owner":    template.Owner,
-		"repo":     template.Repo,
-		"workflow": template.WorkflowID,
-		"ref":      template.Ref,
+		"owner":    owner,
+		"repo":     repo,
+		"workflow": workflowID,
+		"ref":      ref,
 	}).Info("Dispatching job")
 
 	// Trigger the workflow dispatch.
 	if err := d.ghClient.TriggerWorkflowDispatch(
 		ctx,
-		template.Owner,
-		template.Repo,
-		template.WorkflowID,
-		template.Ref,
+		owner,
+		repo,
+		workflowID,
+		ref,
 		job.Inputs,
 	); err != nil {
 		// Mark the job as failed if we can't trigger.
@@ -318,9 +347,12 @@ func (d *dispatcher) trackJob(ctx context.Context, job *store.Job) error {
 		return fmt.Errorf("template not found: %s", job.TemplateID)
 	}
 
+	// Get effective workflow parameters (job override or template default).
+	owner, repo, workflowID, _ := getEffectiveWorkflowParams(job, template)
+
 	// If we don't have a run ID, we need to find it.
 	if job.RunID == nil || *job.RunID == 0 {
-		runID, runURL, err := d.findWorkflowRun(ctx, template, job)
+		runID, runURL, err := d.findWorkflowRun(ctx, owner, repo, workflowID, job)
 		if err != nil {
 			log.WithError(err).Debug("Could not find workflow run yet")
 
@@ -350,7 +382,7 @@ func (d *dispatcher) trackJob(ctx context.Context, job *store.Job) error {
 	}
 
 	// Get the workflow run status.
-	run, err := d.ghClient.GetWorkflowRun(ctx, template.Owner, template.Repo, *job.RunID)
+	run, err := d.ghClient.GetWorkflowRun(ctx, owner, repo, *job.RunID)
 	if err != nil {
 		return fmt.Errorf("getting workflow run: %w", err)
 	}
@@ -368,7 +400,7 @@ func (d *dispatcher) trackJob(ctx context.Context, job *store.Job) error {
 
 			var runnerName string
 
-			jobs, err := d.ghClient.ListWorkflowRunJobs(ctx, template.Owner, template.Repo, *job.RunID)
+			jobs, err := d.ghClient.ListWorkflowRunJobs(ctx, owner, repo, *job.RunID)
 			if err != nil {
 				log.WithError(err).Warn("Failed to get workflow jobs for runner info")
 			} else if len(jobs) > 0 {
@@ -444,7 +476,7 @@ func (d *dispatcher) trackJob(ctx context.Context, job *store.Job) error {
 // findWorkflowRun searches for a recently created workflow run that matches our job.
 func (d *dispatcher) findWorkflowRun(
 	ctx context.Context,
-	template *store.JobTemplate,
+	owner, repo, workflowID string,
 	job *store.Job,
 ) (int64, string, error) {
 	// We need to list recent workflow runs and find one that was created
@@ -459,7 +491,7 @@ func (d *dispatcher) findWorkflowRun(
 	// Give a small buffer before the trigger time to account for clock drift.
 	searchTime := job.TriggeredAt.Add(-30 * time.Second)
 
-	runs, err := d.ghClient.ListWorkflowRuns(ctx, template.Owner, template.Repo, template.WorkflowID, github.ListWorkflowRunsOpts{
+	runs, err := d.ghClient.ListWorkflowRuns(ctx, owner, repo, workflowID, github.ListWorkflowRunsOpts{
 		Event:     "workflow_dispatch",
 		CreatedAt: &searchTime,
 		PerPage:   10,

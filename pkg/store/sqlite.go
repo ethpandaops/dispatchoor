@@ -179,6 +179,13 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		`ALTER TABLE jobs ADD COLUMN runner_id INTEGER`,
 		// Migration: Add paused column to groups table.
 		`ALTER TABLE groups ADD COLUMN paused INTEGER DEFAULT 0`,
+		// Migration: Add override fields to jobs table.
+		`ALTER TABLE jobs ADD COLUMN name TEXT`,
+		`ALTER TABLE jobs ADD COLUMN owner TEXT`,
+		`ALTER TABLE jobs ADD COLUMN repo TEXT`,
+		`ALTER TABLE jobs ADD COLUMN workflow_id TEXT`,
+		`ALTER TABLE jobs ADD COLUMN ref TEXT`,
+		`ALTER TABLE jobs ADD COLUMN labels TEXT`,
 	}
 
 	for _, migration := range migrations {
@@ -519,11 +526,23 @@ func (s *SQLiteStore) CreateJob(ctx context.Context, job *Job) error {
 		return fmt.Errorf("marshaling inputs: %w", err)
 	}
 
+	var labelsJSON sql.NullString
+	if job.Labels != nil {
+		data, err := json.Marshal(job.Labels)
+		if err != nil {
+			return fmt.Errorf("marshaling labels: %w", err)
+		}
+
+		labelsJSON = sql.NullString{String: string(data), Valid: true}
+	}
+
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by, name, owner, repo, workflow_id, ref, labels, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status, job.Paused,
-		job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON), job.CreatedBy, job.CreatedAt, job.UpdatedAt)
+		job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON), job.CreatedBy,
+		job.Name, job.Owner, job.Repo, job.WorkflowID, job.Ref, labelsJSON,
+		job.CreatedAt, job.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("inserting job: %w", err)
@@ -548,13 +567,17 @@ func (s *SQLiteStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	var runnerID sql.NullInt64
 
+	var name, owner, repo, workflowID, ref, labelsJSON sql.NullString
+
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at
+			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at,
+			   name, owner, repo, workflow_id, ref, labels
 		FROM jobs WHERE id = ?
 	`, id).Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position, &job.Status,
 		&paused, &autoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName, &completedAt,
-		&errorMessage, &job.CreatedAt, &job.UpdatedAt)
+		&errorMessage, &job.CreatedAt, &job.UpdatedAt,
+		&name, &owner, &repo, &workflowID, &ref, &labelsJSON)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -599,6 +622,32 @@ func (s *SQLiteStore) GetJob(ctx context.Context, id string) (*Job, error) {
 	job.ErrorMessage = errorMessage.String
 	job.CreatedBy = createdBy.String
 
+	if name.Valid {
+		job.Name = &name.String
+	}
+
+	if owner.Valid {
+		job.Owner = &owner.String
+	}
+
+	if repo.Valid {
+		job.Repo = &repo.String
+	}
+
+	if workflowID.Valid {
+		job.WorkflowID = &workflowID.String
+	}
+
+	if ref.Valid {
+		job.Ref = &ref.String
+	}
+
+	if labelsJSON.Valid && labelsJSON.String != "" {
+		if err := json.Unmarshal([]byte(labelsJSON.String), &job.Labels); err != nil {
+			return nil, fmt.Errorf("unmarshaling labels: %w", err)
+		}
+	}
+
 	return &job, nil
 }
 
@@ -608,7 +657,8 @@ func (s *SQLiteStore) ListJobsByGroup(
 ) ([]*Job, error) {
 	query := `
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at
+			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at,
+			   name, owner, repo, workflow_id, ref, labels
 		FROM jobs WHERE group_id = ?
 	`
 
@@ -651,7 +701,8 @@ func (s *SQLiteStore) ListJobsByStatus(ctx context.Context, statuses ...JobStatu
 
 	query := fmt.Sprintf(`
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at
+			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at,
+			   name, owner, repo, workflow_id, ref, labels
 		FROM jobs WHERE status IN (%s) ORDER BY position
 	`, strings.Join(placeholders, ","))
 
@@ -683,9 +734,12 @@ func (s *SQLiteStore) queryJobs(ctx context.Context, query string, args ...any) 
 
 		var runnerID sql.NullInt64
 
+		var name, owner, repo, workflowID, ref, labelsJSON sql.NullString
+
 		if err := rows.Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position,
 			&job.Status, &paused, &autoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName,
-			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt); err != nil {
+			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt,
+			&name, &owner, &repo, &workflowID, &ref, &labelsJSON); err != nil {
 			return nil, fmt.Errorf("scanning job: %w", err)
 		}
 
@@ -724,6 +778,32 @@ func (s *SQLiteStore) queryJobs(ctx context.Context, query string, args ...any) 
 		job.ErrorMessage = errorMessage.String
 		job.CreatedBy = createdBy.String
 
+		if name.Valid {
+			job.Name = &name.String
+		}
+
+		if owner.Valid {
+			job.Owner = &owner.String
+		}
+
+		if repo.Valid {
+			job.Repo = &repo.String
+		}
+
+		if workflowID.Valid {
+			job.WorkflowID = &workflowID.String
+		}
+
+		if ref.Valid {
+			job.Ref = &ref.String
+		}
+
+		if labelsJSON.Valid && labelsJSON.String != "" {
+			if err := json.Unmarshal([]byte(labelsJSON.String), &job.Labels); err != nil {
+				return nil, fmt.Errorf("unmarshaling labels: %w", err)
+			}
+		}
+
 		jobs = append(jobs, &job)
 	}
 
@@ -737,16 +817,29 @@ func (s *SQLiteStore) UpdateJob(ctx context.Context, job *Job) error {
 		return fmt.Errorf("marshaling inputs: %w", err)
 	}
 
+	var labelsJSON sql.NullString
+	if job.Labels != nil {
+		data, err := json.Marshal(job.Labels)
+		if err != nil {
+			return fmt.Errorf("marshaling labels: %w", err)
+		}
+
+		labelsJSON = sql.NullString{String: string(data), Valid: true}
+	}
+
 	job.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
 		UPDATE jobs SET priority = ?, position = ?, status = ?, paused = ?, auto_requeue = ?, requeue_limit = ?, requeue_count = ?, inputs = ?,
 			   triggered_at = ?, run_id = ?, run_url = ?, runner_id = ?, runner_name = ?,
-			   completed_at = ?, error_message = ?, updated_at = ?
+			   completed_at = ?, error_message = ?, updated_at = ?,
+			   name = ?, owner = ?, repo = ?, workflow_id = ?, ref = ?, labels = ?
 		WHERE id = ?
 	`, job.Priority, job.Position, job.Status, job.Paused, job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON),
 		job.TriggeredAt, job.RunID, job.RunURL, job.RunnerID, job.RunnerName,
-		job.CompletedAt, job.ErrorMessage, job.UpdatedAt, job.ID)
+		job.CompletedAt, job.ErrorMessage, job.UpdatedAt,
+		job.Name, job.Owner, job.Repo, job.WorkflowID, job.Ref, labelsJSON,
+		job.ID)
 
 	if err != nil {
 		return fmt.Errorf("updating job: %w", err)

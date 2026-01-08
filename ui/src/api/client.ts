@@ -200,10 +200,21 @@ class ApiClient {
     });
   }
 
-  async updateJob(id: string, inputs: Record<string, string>): Promise<Job> {
+  async updateJob(
+    id: string,
+    updates: {
+      inputs?: Record<string, string>;
+      name?: string;
+      owner?: string;
+      repo?: string;
+      workflow_id?: string;
+      ref?: string;
+      labels?: Record<string, string>;
+    }
+  ): Promise<Job> {
     return this.request<Job>(`/jobs/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ inputs }),
+      body: JSON.stringify(updates),
     });
   }
 

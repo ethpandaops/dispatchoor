@@ -216,6 +216,37 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		EXCEPTION
 			WHEN duplicate_column THEN NULL;
 		END $$`,
+		// Migration: Add job override fields.
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN name TEXT;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN owner TEXT;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN repo TEXT;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN workflow_id TEXT;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN ref TEXT;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE jobs ADD COLUMN labels JSONB;
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
 	}
 
 	for _, migration := range migrations {
@@ -535,11 +566,18 @@ func (s *PostgresStore) CreateJob(ctx context.Context, job *Job) error {
 		return fmt.Errorf("marshaling inputs: %w", err)
 	}
 
+	labelsJSON, err := json.Marshal(job.Labels)
+	if err != nil {
+		return fmt.Errorf("marshaling labels: %w", err)
+	}
+
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		INSERT INTO jobs (id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
+		                  name, owner, repo, workflow_id, ref, labels, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	`, job.ID, job.GroupID, job.TemplateID, job.Priority, job.Position, job.Status, job.Paused,
-		job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON), job.CreatedBy, job.CreatedAt, job.UpdatedAt)
+		job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON), job.CreatedBy,
+		job.Name, job.Owner, job.Repo, job.WorkflowID, job.Ref, string(labelsJSON), job.CreatedAt, job.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("inserting job: %w", err)
@@ -564,13 +602,17 @@ func (s *PostgresStore) GetJob(ctx context.Context, id string) (*Job, error) {
 
 	var runnerID sql.NullInt64
 
+	var name, owner, repo, workflowID, ref, labelsJSON sql.NullString
+
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at
+			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at,
+			   name, owner, repo, workflow_id, ref, labels
 		FROM jobs WHERE id = $1
 	`, id).Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position, &job.Status,
 		&job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName, &completedAt,
-		&errorMessage, &job.CreatedAt, &job.UpdatedAt)
+		&errorMessage, &job.CreatedAt, &job.UpdatedAt,
+		&name, &owner, &repo, &workflowID, &ref, &labelsJSON)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -612,6 +654,32 @@ func (s *PostgresStore) GetJob(ctx context.Context, id string) (*Job, error) {
 	job.ErrorMessage = errorMessage.String
 	job.CreatedBy = createdBy.String
 
+	if name.Valid {
+		job.Name = &name.String
+	}
+
+	if owner.Valid {
+		job.Owner = &owner.String
+	}
+
+	if repo.Valid {
+		job.Repo = &repo.String
+	}
+
+	if workflowID.Valid {
+		job.WorkflowID = &workflowID.String
+	}
+
+	if ref.Valid {
+		job.Ref = &ref.String
+	}
+
+	if labelsJSON.Valid && labelsJSON.String != "" {
+		if err := json.Unmarshal([]byte(labelsJSON.String), &job.Labels); err != nil {
+			return nil, fmt.Errorf("unmarshaling job labels: %w", err)
+		}
+	}
+
 	return &job, nil
 }
 
@@ -621,7 +689,8 @@ func (s *PostgresStore) ListJobsByGroup(
 ) ([]*Job, error) {
 	query := `
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at
+			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at,
+			   name, owner, repo, workflow_id, ref, labels
 		FROM jobs WHERE group_id = $1
 	`
 
@@ -666,7 +735,8 @@ func (s *PostgresStore) ListJobsByStatus(ctx context.Context, statuses ...JobSta
 
 	query := fmt.Sprintf(`
 		SELECT id, group_id, template_id, priority, position, status, paused, auto_requeue, requeue_limit, requeue_count, inputs, created_by,
-			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at
+			   triggered_at, run_id, run_url, runner_id, runner_name, completed_at, error_message, created_at, updated_at,
+			   name, owner, repo, workflow_id, ref, labels
 		FROM jobs WHERE status IN (%s) ORDER BY position
 	`, strings.Join(placeholders, ","))
 
@@ -698,9 +768,12 @@ func (s *PostgresStore) queryJobs(ctx context.Context, query string, args ...any
 
 		var runnerID sql.NullInt64
 
+		var name, owner, repo, workflowID, ref, labelsJSON sql.NullString
+
 		if err := rows.Scan(&job.ID, &job.GroupID, &job.TemplateID, &job.Priority, &job.Position,
 			&job.Status, &job.Paused, &job.AutoRequeue, &requeueLimit, &job.RequeueCount, &inputsJSON, &createdBy, &triggeredAt, &runID, &runURL, &runnerID, &runnerName,
-			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt); err != nil {
+			&completedAt, &errorMessage, &job.CreatedAt, &job.UpdatedAt,
+			&name, &owner, &repo, &workflowID, &ref, &labelsJSON); err != nil {
 			return nil, fmt.Errorf("scanning job: %w", err)
 		}
 
@@ -736,6 +809,32 @@ func (s *PostgresStore) queryJobs(ctx context.Context, query string, args ...any
 		job.ErrorMessage = errorMessage.String
 		job.CreatedBy = createdBy.String
 
+		if name.Valid {
+			job.Name = &name.String
+		}
+
+		if owner.Valid {
+			job.Owner = &owner.String
+		}
+
+		if repo.Valid {
+			job.Repo = &repo.String
+		}
+
+		if workflowID.Valid {
+			job.WorkflowID = &workflowID.String
+		}
+
+		if ref.Valid {
+			job.Ref = &ref.String
+		}
+
+		if labelsJSON.Valid && labelsJSON.String != "" {
+			if err := json.Unmarshal([]byte(labelsJSON.String), &job.Labels); err != nil {
+				return nil, fmt.Errorf("unmarshaling job labels: %w", err)
+			}
+		}
+
 		jobs = append(jobs, &job)
 	}
 
@@ -749,16 +848,23 @@ func (s *PostgresStore) UpdateJob(ctx context.Context, job *Job) error {
 		return fmt.Errorf("marshaling inputs: %w", err)
 	}
 
+	labelsJSON, err := json.Marshal(job.Labels)
+	if err != nil {
+		return fmt.Errorf("marshaling labels: %w", err)
+	}
+
 	job.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
 		UPDATE jobs SET priority = $1, position = $2, status = $3, paused = $4, auto_requeue = $5, requeue_limit = $6, requeue_count = $7, inputs = $8,
 			   triggered_at = $9, run_id = $10, run_url = $11, runner_id = $12, runner_name = $13,
-			   completed_at = $14, error_message = $15, updated_at = $16
-		WHERE id = $17
+			   completed_at = $14, error_message = $15, updated_at = $16,
+			   name = $17, owner = $18, repo = $19, workflow_id = $20, ref = $21, labels = $22
+		WHERE id = $23
 	`, job.Priority, job.Position, job.Status, job.Paused, job.AutoRequeue, job.RequeueLimit, job.RequeueCount, string(inputsJSON),
 		job.TriggeredAt, job.RunID, job.RunURL, job.RunnerID, job.RunnerName,
-		job.CompletedAt, job.ErrorMessage, job.UpdatedAt, job.ID)
+		job.CompletedAt, job.ErrorMessage, job.UpdatedAt,
+		job.Name, job.Owner, job.Repo, job.WorkflowID, job.Ref, string(labelsJSON), job.ID)
 
 	if err != nil {
 		return fmt.Errorf("updating job: %w", err)
@@ -820,7 +926,8 @@ func (s *PostgresStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpt
 
 	query := `
 		SELECT j.id, j.group_id, j.template_id, j.priority, j.position, j.status, j.paused, j.auto_requeue, j.requeue_limit, j.requeue_count, j.inputs, j.created_by,
-			   j.triggered_at, j.run_id, j.run_url, j.runner_id, j.runner_name, j.completed_at, j.error_message, j.created_at, j.updated_at
+			   j.triggered_at, j.run_id, j.run_url, j.runner_id, j.runner_name, j.completed_at, j.error_message, j.created_at, j.updated_at,
+			   j.name, j.owner, j.repo, j.workflow_id, j.ref, j.labels
 		FROM jobs j
 	`
 

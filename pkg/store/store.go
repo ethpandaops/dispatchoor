@@ -142,6 +142,14 @@ type Job struct {
 	ErrorMessage string            `json:"error_message"`
 	CreatedAt    time.Time         `json:"created_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
+
+	// Override fields (nil/empty means use template value).
+	Name       *string           `json:"name,omitempty"`
+	Owner      *string           `json:"owner,omitempty"`
+	Repo       *string           `json:"repo,omitempty"`
+	WorkflowID *string           `json:"workflow_id,omitempty"`
+	Ref        *string           `json:"ref,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
 }
 
 // RunnerStatus represents the status of a GitHub Actions runner.

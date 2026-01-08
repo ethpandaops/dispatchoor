@@ -671,7 +671,13 @@ func (s *server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateJobRequest struct {
-	Inputs map[string]string `json:"inputs"`
+	Inputs     map[string]string `json:"inputs"`
+	Name       *string           `json:"name,omitempty"`
+	Owner      *string           `json:"owner,omitempty"`
+	Repo       *string           `json:"repo,omitempty"`
+	WorkflowID *string           `json:"workflow_id,omitempty"`
+	Ref        *string           `json:"ref,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
 }
 
 func (s *server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
@@ -684,7 +690,17 @@ func (s *server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.queue.UpdateInputs(r.Context(), jobID, req.Inputs); err != nil {
+	opts := &queue.UpdateJobOptions{
+		Inputs:     req.Inputs,
+		Name:       req.Name,
+		Owner:      req.Owner,
+		Repo:       req.Repo,
+		WorkflowID: req.WorkflowID,
+		Ref:        req.Ref,
+		Labels:     req.Labels,
+	}
+
+	if err := s.queue.UpdateJob(r.Context(), jobID, opts); err != nil {
 		s.log.WithError(err).Error("Failed to update job")
 		s.writeError(w, http.StatusBadRequest, err.Error())
 

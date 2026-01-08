@@ -21,25 +21,77 @@ const statusColors: Record<string, { bg: string; text: string; dot: string }> = 
   cancelled: { bg: 'bg-zinc-500/10', text: 'text-zinc-400', dot: 'bg-zinc-400' },
 };
 
+interface EditState {
+  inputs: Record<string, string>;
+  owner: string;
+  repo: string;
+  workflowId: string;
+  ref: string;
+}
+
 export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDialogProps) {
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const isAdmin = user?.role === 'admin';
   const canEdit = isAdmin && job.status === 'pending';
 
-  const [editedInputs, setEditedInputs] = useState<Record<string, string>>(job.inputs || {});
+  // Initialize edit state with job overrides or template defaults
+  const getInitialState = (): EditState => ({
+    inputs: job.inputs || {},
+    owner: job.owner ?? template?.owner ?? '',
+    repo: job.repo ?? template?.repo ?? '',
+    workflowId: job.workflow_id ?? template?.workflow_id ?? '',
+    ref: job.ref ?? template?.ref ?? '',
+  });
+
+  const [editState, setEditState] = useState<EditState>(getInitialState);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Reset edited inputs when job changes or dialog opens
+  // Reset edit state when job changes or dialog opens
   useEffect(() => {
     if (isOpen) {
-      setEditedInputs(job.inputs || {});
+      setEditState(getInitialState());
       setHasChanges(false);
     }
-  }, [isOpen, job.inputs]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, job.id, job.inputs, job.owner, job.repo, job.workflow_id, job.ref, template]);
 
   const updateMutation = useMutation({
-    mutationFn: () => api.updateJob(job.id, editedInputs),
+    mutationFn: () => {
+      // Build update payload - only include overrides that differ from template
+      const updates: Parameters<typeof api.updateJob>[1] = {
+        inputs: editState.inputs,
+      };
+
+      // Check each field - if it differs from template, include the override
+      // Empty string means "clear override, use template"
+      if (editState.owner !== (template?.owner ?? '')) {
+        updates.owner = editState.owner || undefined;
+      } else if (job.owner !== undefined) {
+        // Had an override before, clear it
+        updates.owner = undefined;
+      }
+
+      if (editState.repo !== (template?.repo ?? '')) {
+        updates.repo = editState.repo || undefined;
+      } else if (job.repo !== undefined) {
+        updates.repo = undefined;
+      }
+
+      if (editState.workflowId !== (template?.workflow_id ?? '')) {
+        updates.workflow_id = editState.workflowId || undefined;
+      } else if (job.workflow_id !== undefined) {
+        updates.workflow_id = undefined;
+      }
+
+      if (editState.ref !== (template?.ref ?? '')) {
+        updates.ref = editState.ref || undefined;
+      } else if (job.ref !== undefined) {
+        updates.ref = undefined;
+      }
+
+      return api.updateJob(job.id, updates);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['queue', job.group_id] });
       setHasChanges(false);
@@ -51,7 +103,12 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
   const colors = statusColors[job.status] || statusColors.pending;
 
   const handleInputChange = (key: string, value: string) => {
-    setEditedInputs((prev) => ({ ...prev, [key]: value }));
+    setEditState((prev) => ({ ...prev, inputs: { ...prev.inputs, [key]: value } }));
+    setHasChanges(true);
+  };
+
+  const handleFieldChange = (field: keyof Omit<EditState, 'inputs'>, value: string) => {
+    setEditState((prev) => ({ ...prev, [field]: value }));
     setHasChanges(true);
   };
 
@@ -60,8 +117,36 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
   };
 
   const handleCancel = () => {
-    setEditedInputs(job.inputs || {});
+    setEditState(getInitialState());
     setHasChanges(false);
+  };
+
+  // Check if a field has been overridden from template
+  const isOverridden = (field: 'owner' | 'repo' | 'workflowId' | 'ref') => {
+    const templateValue = field === 'workflowId' ? template?.workflow_id : template?.[field];
+    return editState[field] !== (templateValue ?? '') && editState[field] !== '';
+  };
+
+  // Get effective value (edit state for editing, job override or template for display)
+  const getEffectiveValue = (field: 'owner' | 'repo' | 'workflowId' | 'ref'): string => {
+    if (canEdit) return editState[field];
+    // Get job override value
+    let jobValue: string | undefined;
+    switch (field) {
+      case 'owner': jobValue = job.owner; break;
+      case 'repo': jobValue = job.repo; break;
+      case 'workflowId': jobValue = job.workflow_id; break;
+      case 'ref': jobValue = job.ref; break;
+    }
+    // Get template value
+    let templateValue: string | undefined;
+    switch (field) {
+      case 'owner': templateValue = template?.owner; break;
+      case 'repo': templateValue = template?.repo; break;
+      case 'workflowId': templateValue = template?.workflow_id; break;
+      case 'ref': templateValue = template?.ref; break;
+    }
+    return jobValue ?? templateValue ?? '';
   };
 
   const formatDateTime = (dateStr: string | null) => {
@@ -91,7 +176,6 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
   };
 
   const formatInputValue = (value: string): string => {
-    // Try to pretty-print JSON
     if (value.startsWith('{') || value.startsWith('[')) {
       try {
         return JSON.stringify(JSON.parse(value), null, 2);
@@ -102,7 +186,13 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
     return value;
   };
 
-  const inputEntries = Object.entries(editedInputs);
+  const inputEntries = Object.entries(canEdit ? editState.inputs : (job.inputs || {}));
+
+  // Get effective owner/repo for links
+  const effectiveOwner = getEffectiveValue('owner');
+  const effectiveRepo = getEffectiveValue('repo');
+  const effectiveWorkflowId = getEffectiveValue('workflowId');
+  const effectiveRef = getEffectiveValue('ref');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -119,7 +209,7 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
               {job.paused ? 'paused' : job.status}
             </span>
             <h2 className="text-lg font-semibold text-zinc-100">
-              {template?.name || job.template_id}
+              {job.name ?? template?.name ?? job.template_id}
             </h2>
             <span className="text-sm text-zinc-500">#{job.position}</span>
           </div>
@@ -143,66 +233,168 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
           )}
 
           {/* Workflow Info */}
-          <div className="rounded-sm border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
-            <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Workflow</h3>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-zinc-500">Repository</span>
-                {template ? (
-                  <a
-                    href={`https://github.com/${template.owner}/${template.repo}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-zinc-200 hover:text-blue-400"
-                  >
-                    {template.owner}/{template.repo}
-                    <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                ) : (
-                  <p className="text-zinc-400">-</p>
-                )}
-              </div>
-              <div>
-                <span className="text-zinc-500">Workflow File</span>
-                {template ? (
-                  <a
-                    href={`https://github.com/${template.owner}/${template.repo}/blob/${template.ref}/.github/workflows/${template.workflow_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-zinc-200 hover:text-blue-400"
-                  >
-                    {template.workflow_id}
-                    <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                ) : (
-                  <p className="text-zinc-400">-</p>
-                )}
-              </div>
-              <div>
-                <span className="text-zinc-500">Branch / Ref</span>
-                <p className="text-zinc-200 font-mono">{template?.ref || '-'}</p>
-              </div>
-              {job.run_url && (
-                <div>
-                  <span className="text-zinc-500">GitHub Run</span>
-                  <a
-                    href={job.run_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-zinc-200 hover:text-blue-400"
-                  >
-                    Run #{job.run_id}
-                    <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                </div>
+          <div className="rounded-sm border border-zinc-800 bg-zinc-800/30 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Workflow</h3>
+              {canEdit && (
+                <span className="text-xs text-zinc-500">Edit fields to override template</span>
               )}
             </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              {/* Owner */}
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-zinc-500 text-xs">Owner</span>
+                  {isOverridden('owner') && <span className="text-xs text-amber-400">overridden</span>}
+                </div>
+                {canEdit ? (
+                  <input
+                    type="text"
+                    value={editState.owner}
+                    onChange={(e) => handleFieldChange('owner', e.target.value)}
+                    placeholder={template?.owner || ''}
+                    className={`w-full rounded-sm border px-2 py-1 text-sm font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500 ${
+                      isOverridden('owner')
+                        ? 'border-amber-500/50 bg-amber-500/10 text-amber-200'
+                        : 'border-zinc-700 bg-zinc-800 text-zinc-200'
+                    }`}
+                  />
+                ) : (
+                  <p className={`text-sm font-mono ${job.owner ? 'text-amber-200' : 'text-zinc-200'}`}>
+                    {effectiveOwner || '-'}
+                  </p>
+                )}
+                {isOverridden('owner') && template?.owner && (
+                  <p className="text-xs text-zinc-500 mt-1">Template: {template.owner}</p>
+                )}
+              </div>
+              {/* Repository */}
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-zinc-500 text-xs">Repository</span>
+                  {isOverridden('repo') && <span className="text-xs text-amber-400">overridden</span>}
+                </div>
+                {canEdit ? (
+                  <input
+                    type="text"
+                    value={editState.repo}
+                    onChange={(e) => handleFieldChange('repo', e.target.value)}
+                    placeholder={template?.repo || ''}
+                    className={`w-full rounded-sm border px-2 py-1 text-sm font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500 ${
+                      isOverridden('repo')
+                        ? 'border-amber-500/50 bg-amber-500/10 text-amber-200'
+                        : 'border-zinc-700 bg-zinc-800 text-zinc-200'
+                    }`}
+                  />
+                ) : (
+                  <p className={`text-sm font-mono ${job.repo ? 'text-amber-200' : 'text-zinc-200'}`}>
+                    {effectiveRepo || '-'}
+                  </p>
+                )}
+                {isOverridden('repo') && template?.repo && (
+                  <p className="text-xs text-zinc-500 mt-1">Template: {template.repo}</p>
+                )}
+              </div>
+              {/* Workflow File */}
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-zinc-500 text-xs">Workflow File</span>
+                  {isOverridden('workflowId') && <span className="text-xs text-amber-400">overridden</span>}
+                </div>
+                {canEdit ? (
+                  <input
+                    type="text"
+                    value={editState.workflowId}
+                    onChange={(e) => handleFieldChange('workflowId', e.target.value)}
+                    placeholder={template?.workflow_id || ''}
+                    className={`w-full rounded-sm border px-2 py-1 text-sm font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500 ${
+                      isOverridden('workflowId')
+                        ? 'border-amber-500/50 bg-amber-500/10 text-amber-200'
+                        : 'border-zinc-700 bg-zinc-800 text-zinc-200'
+                    }`}
+                  />
+                ) : (
+                  <p className={`text-sm font-mono ${job.workflow_id ? 'text-amber-200' : 'text-zinc-200'}`}>
+                    {effectiveWorkflowId || '-'}
+                  </p>
+                )}
+                {isOverridden('workflowId') && template?.workflow_id && (
+                  <p className="text-xs text-zinc-500 mt-1">Template: {template.workflow_id}</p>
+                )}
+              </div>
+              {/* Branch / Ref */}
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-zinc-500 text-xs">Branch / Ref</span>
+                  {isOverridden('ref') && <span className="text-xs text-amber-400">overridden</span>}
+                </div>
+                {canEdit ? (
+                  <input
+                    type="text"
+                    value={editState.ref}
+                    onChange={(e) => handleFieldChange('ref', e.target.value)}
+                    placeholder={template?.ref || ''}
+                    className={`w-full rounded-sm border px-2 py-1 text-sm font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500 ${
+                      isOverridden('ref')
+                        ? 'border-amber-500/50 bg-amber-500/10 text-amber-200'
+                        : 'border-zinc-700 bg-zinc-800 text-zinc-200'
+                    }`}
+                  />
+                ) : (
+                  <p className={`text-sm font-mono ${job.ref ? 'text-amber-200' : 'text-zinc-200'}`}>
+                    {effectiveRef || '-'}
+                  </p>
+                )}
+                {isOverridden('ref') && template?.ref && (
+                  <p className="text-xs text-zinc-500 mt-1">Template: {template.ref}</p>
+                )}
+              </div>
+            </div>
+            {/* GitHub links - only show when not editing */}
+            {!canEdit && effectiveOwner && effectiveRepo && (
+              <div className="flex gap-4 pt-2 border-t border-zinc-700/50">
+                <a
+                  href={`https://github.com/${effectiveOwner}/${effectiveRepo}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-zinc-400 hover:text-blue-400"
+                >
+                  View Repository
+                  <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+                {effectiveWorkflowId && effectiveRef && (
+                  <a
+                    href={`https://github.com/${effectiveOwner}/${effectiveRepo}/blob/${effectiveRef}/.github/workflows/${effectiveWorkflowId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-zinc-400 hover:text-blue-400"
+                  >
+                    View Workflow
+                    <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                )}
+              </div>
+            )}
+            {job.run_url && (
+              <div className="pt-2 border-t border-zinc-700/50">
+                <span className="text-zinc-500 text-xs">GitHub Run</span>
+                <a
+                  href={job.run_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-sm text-zinc-200 hover:text-blue-400"
+                >
+                  Run #{job.run_id}
+                  <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              </div>
+            )}
           </div>
 
           {/* Timing Info */}
@@ -276,40 +468,66 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
             </div>
             {inputEntries.length > 0 ? (
               <div className="space-y-3">
-                {inputEntries.map(([key, value]) => (
-                  <div key={key}>
-                    <label className="block text-xs font-medium text-zinc-400 mb-1">{key}</label>
-                    {canEdit ? (
-                      // Editable input
-                      value.length > 100 || value.includes('\n') || value.startsWith('{') || value.startsWith('[') ? (
-                        <textarea
-                          value={editedInputs[key]}
-                          onChange={(e) => handleInputChange(key, e.target.value)}
-                          rows={Math.min(8, Math.max(3, formatInputValue(value).split('\n').length))}
-                          className="w-full rounded-sm border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 font-mono focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-                        />
+                {inputEntries.map(([key, value]) => {
+                  const templateDefault = template?.default_inputs?.[key];
+                  const currentValue = canEdit ? editState.inputs[key] : value;
+                  const isInputOverridden = templateDefault !== undefined && currentValue !== templateDefault;
+
+                  return (
+                    <div key={key}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <label className="text-xs font-medium text-zinc-400">{key}</label>
+                        {isInputOverridden && (
+                          <span className="text-xs text-amber-400">overridden</span>
+                        )}
+                      </div>
+                      {canEdit ? (
+                        value.length > 100 || value.includes('\n') || value.startsWith('{') || value.startsWith('[') ? (
+                          <textarea
+                            value={editState.inputs[key]}
+                            onChange={(e) => handleInputChange(key, e.target.value)}
+                            rows={Math.min(8, Math.max(3, formatInputValue(value).split('\n').length))}
+                            className={`w-full rounded-sm border px-3 py-2 text-sm font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500 ${
+                              isInputOverridden
+                                ? 'border-amber-500/50 bg-amber-500/10 text-amber-200'
+                                : 'border-zinc-700 bg-zinc-800 text-zinc-100'
+                            }`}
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            value={editState.inputs[key]}
+                            onChange={(e) => handleInputChange(key, e.target.value)}
+                            className={`w-full rounded-sm border px-3 py-2 text-sm focus:outline-hidden focus:ring-1 focus:ring-blue-500 ${
+                              isInputOverridden
+                                ? 'border-amber-500/50 bg-amber-500/10 text-amber-200'
+                                : 'border-zinc-700 bg-zinc-800 text-zinc-100'
+                            }`}
+                          />
+                        )
                       ) : (
-                        <input
-                          type="text"
-                          value={editedInputs[key]}
-                          onChange={(e) => handleInputChange(key, e.target.value)}
-                          className="w-full rounded-sm border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 focus:border-blue-500 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-                        />
-                      )
-                    ) : (
-                      // Read-only display
-                      value.length > 80 || value.includes('\n') || value.startsWith('{') || value.startsWith('[') ? (
-                        <pre className="max-h-48 overflow-auto rounded-sm bg-zinc-800 p-2 text-sm font-mono text-zinc-300">
-                          {formatInputValue(value)}
-                        </pre>
-                      ) : (
-                        <p className="text-sm text-zinc-200 font-mono bg-zinc-800 rounded-sm px-2 py-1">
-                          {value}
+                        value.length > 80 || value.includes('\n') || value.startsWith('{') || value.startsWith('[') ? (
+                          <pre className={`max-h-48 overflow-auto rounded-sm p-2 text-sm font-mono ${
+                            isInputOverridden ? 'bg-amber-500/10 text-amber-200' : 'bg-zinc-800 text-zinc-300'
+                          }`}>
+                            {formatInputValue(value)}
+                          </pre>
+                        ) : (
+                          <p className={`text-sm font-mono rounded-sm px-2 py-1 ${
+                            isInputOverridden ? 'bg-amber-500/10 text-amber-200' : 'bg-zinc-800 text-zinc-200'
+                          }`}>
+                            {value}
+                          </p>
+                        )
+                      )}
+                      {isInputOverridden && templateDefault && (
+                        <p className="text-xs text-zinc-500 mt-1 truncate" title={templateDefault}>
+                          Template: {templateDefault.length > 60 ? templateDefault.substring(0, 60) + '...' : templateDefault}
                         </p>
-                      )
-                    )}
-                  </div>
-                ))}
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-zinc-500">No inputs</p>

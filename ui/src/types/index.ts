@@ -65,6 +65,13 @@ export interface Job {
   error_message: string;
   created_at: string;
   updated_at: string;
+  // Override fields (undefined means use template value)
+  name?: string;
+  owner?: string;
+  repo?: string;
+  workflow_id?: string;
+  ref?: string;
+  labels?: Record<string, string>;
 }
 
 export interface HistoryResponse {

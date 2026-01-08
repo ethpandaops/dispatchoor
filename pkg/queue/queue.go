@@ -21,6 +21,17 @@ type EnqueueOptions struct {
 	RequeueLimit *int
 }
 
+// UpdateJobOptions contains parameters for updating a job.
+type UpdateJobOptions struct {
+	Inputs     map[string]string
+	Name       *string
+	Owner      *string
+	Repo       *string
+	WorkflowID *string
+	Ref        *string
+	Labels     map[string]string
+}
+
 // Service defines the interface for queue operations.
 type Service interface {
 	Start(ctx context.Context) error
@@ -53,6 +64,7 @@ type Service interface {
 
 	// Update.
 	UpdateInputs(ctx context.Context, jobID string, inputs map[string]string) error
+	UpdateJob(ctx context.Context, jobID string, opts *UpdateJobOptions) error
 
 	// Auto-requeue control.
 	DisableAutoRequeue(ctx context.Context, jobID string) (*store.Job, error)
@@ -630,6 +642,66 @@ func (s *service) UpdateInputs(ctx context.Context, jobID string, inputs map[str
 	}
 
 	s.log.WithField("job_id", jobID).Info("Job inputs updated")
+
+	return nil
+}
+
+// UpdateJob updates a pending job with the provided options.
+func (s *service) UpdateJob(ctx context.Context, jobID string, opts *UpdateJobOptions) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("getting job: %w", err)
+	}
+
+	if job == nil {
+		return fmt.Errorf("job not found: %s", jobID)
+	}
+
+	if job.Status != store.JobStatusPending {
+		return fmt.Errorf("cannot update job with status %s", job.Status)
+	}
+
+	// Update fields if provided.
+	if opts.Inputs != nil {
+		job.Inputs = opts.Inputs
+	}
+
+	if opts.Name != nil {
+		job.Name = opts.Name
+	}
+
+	if opts.Owner != nil {
+		job.Owner = opts.Owner
+	}
+
+	if opts.Repo != nil {
+		job.Repo = opts.Repo
+	}
+
+	if opts.WorkflowID != nil {
+		job.WorkflowID = opts.WorkflowID
+	}
+
+	if opts.Ref != nil {
+		job.Ref = opts.Ref
+	}
+
+	if opts.Labels != nil {
+		job.Labels = opts.Labels
+	}
+
+	job.UpdatedAt = time.Now()
+
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return fmt.Errorf("updating job: %w", err)
+	}
+
+	s.log.WithField("job_id", jobID).Info("Job updated")
+
+	s.notifyJobChange(job)
 
 	return nil
 }

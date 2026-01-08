@@ -170,10 +170,18 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
     return `${seconds}s`;
   };
 
-  const inputsMatchTemplate = () => {
-    if (!template?.default_inputs) return false;
+  // Check if job fully matches template (no overrides)
+  const matchesTemplate = () => {
+    if (!template) return false;
+
+    // Check if any workflow fields are overridden
+    if (job.name || job.owner || job.repo || job.workflow_id || job.ref) {
+      return false;
+    }
+
+    // Check if inputs match template defaults
     const jobInputs = job.inputs || {};
-    const templateInputs = template.default_inputs;
+    const templateInputs = template.default_inputs || {};
 
     const jobKeys = Object.keys(jobInputs);
     const templateKeys = Object.keys(templateInputs);
@@ -182,6 +190,11 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
 
     return jobKeys.every(key => jobInputs[key] === templateInputs[key]);
   };
+
+  // Get effective values (job override or template)
+  const effectiveName = job.name ?? template?.name ?? job.template_id;
+  const effectiveOwner = job.owner ?? template?.owner;
+  const effectiveRepo = job.repo ?? template?.repo;
 
   return (
     <div
@@ -210,8 +223,8 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
               {job.paused ? 'paused' : job.status}
             </span>
             <span className="text-xs text-zinc-500">#{job.position}</span>
-            {inputsMatchTemplate() && (
-              <span className="rounded-sm bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-400" title="Inputs match template defaults">
+            {matchesTemplate() && (
+              <span className="rounded-sm bg-zinc-700 px-1.5 py-0.5 text-xs text-zinc-400" title="Job matches template (no overrides)">
                 Template
               </span>
             )}
@@ -227,7 +240,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
 
           {/* Job name */}
           <h4 className="text-sm font-medium text-zinc-200 truncate">
-            {template?.name || job.template_id}
+            {effectiveName}
           </h4>
 
           {/* Labels */}
@@ -374,12 +387,12 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
       <div className="mt-3 flex items-center justify-between gap-4 text-xs text-zinc-500">
         {/* Context info - left */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          {template && (
-            <span className="flex items-center gap-1">
+          {(effectiveOwner && effectiveRepo) && (
+            <span className={`flex items-center gap-1 ${(job.owner || job.repo) ? 'text-amber-400' : ''}`} title={(job.owner || job.repo) ? 'Repository overridden' : undefined}>
               <svg className="size-3.5" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
               </svg>
-              {template.owner}/{template.repo}
+              {effectiveOwner}/{effectiveRepo}
             </span>
           )}
           {job.runner_name && (
@@ -442,7 +455,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
                   <span className="text-xs text-zinc-500">#{job.position}</span>
                 </div>
                 <p className="text-sm font-medium text-zinc-200 truncate">
-                  {template?.name || job.template_id}
+                  {effectiveName}
                 </p>
                 {getRequeueCountDisplay() && (
                   <p className="text-xs text-purple-400 mt-1">
@@ -498,7 +511,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
                   <span className="text-xs text-zinc-500">#{job.position}</span>
                 </div>
                 <p className="text-sm font-medium text-zinc-200 truncate">
-                  {template?.name || job.template_id}
+                  {effectiveName}
                 </p>
               </div>
               <p className="text-sm text-zinc-400 mb-4">
@@ -543,7 +556,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
                   <span className="text-xs text-zinc-500">#{job.position}</span>
                 </div>
                 <p className="text-sm font-medium text-zinc-200 truncate">
-                  {template?.name || job.template_id}
+                  {effectiveName}
                 </p>
                 {job.runner_name && (
                   <p className="text-xs text-zinc-500 mt-1">
