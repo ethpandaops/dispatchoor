@@ -233,6 +233,45 @@ Template file format (`templates/sync-tests.yaml`):
 
 Both inline templates and file templates can be used together - file templates are appended to inline templates.
 
+### Workflow Best Practices
+
+When creating GitHub Actions workflows to be dispatched by dispatchoor, it's recommended to make `runs-on` and `timeout-minutes` configurable via inputs. This allows you to control runner selection and timeouts from dispatchoor without modifying the workflow file.
+
+See [`examples/workflows/example.yaml`](examples/workflows/example.yaml) for a reference implementation:
+
+```yaml
+on:
+  workflow_dispatch:
+    inputs:
+      runs-on:
+        description: On which runner we want to run the workflow
+        required: false
+        default: '{"group": "your-runner-group", "labels": "XXL"}'
+        type: string
+      timeout-minutes:
+        description: 'Timeout in minutes'
+        required: false
+        default: '1800'
+        type: string
+      message:
+        description: A message that we want to print
+        default: Hello world
+        type: string
+
+jobs:
+  example:
+    timeout-minutes: ${{ fromJSON(inputs.timeout-minutes) }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    steps:
+      - name: Print message
+        run: echo "${{ inputs.message }}"
+```
+
+This pattern allows you to:
+- Override which runner pool executes the job via the `runs-on` input
+- Set custom timeouts per job dispatch
+- Pass any additional parameters your workflow needs
+
 ### Dispatcher
 
 ```yaml

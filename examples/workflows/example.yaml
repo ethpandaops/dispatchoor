@@ -1,0 +1,26 @@
+name: Example
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs-on:
+        description: On which runner we want to run the workflow
+        required: false
+        default: '{"group": "your-runner-group", "labels": "XXL"}'
+        type: string
+      timeout-minutes:
+        description: 'Timeout in minutes'
+        required: false
+        default: '1800'
+        type: string
+      message:
+        description: A message that we want to print
+        default: Hello world
+        type: string
+jobs:
+  example:
+    timeout-minutes: ${{ fromJSON(inputs.timeout-minutes) }}
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    steps:
+      - name: Print message
+        run: echo "${{ inputs.message }}"
