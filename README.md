@@ -283,19 +283,81 @@ dispatcher:
 
 ## API Endpoints
 
+### Public
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | Health check |
+| GET | `/metrics` | Prometheus metrics |
+
+### Authentication
+
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/health` | - | Health check |
-| GET | `/metrics` | - | Prometheus metrics |
 | POST | `/api/v1/auth/login` | - | Login with username/password |
 | GET | `/api/v1/auth/github` | - | Initiate GitHub OAuth |
-| GET | `/api/v1/groups` | User | List all groups |
+| GET | `/api/v1/auth/github/callback` | - | GitHub OAuth callback |
+| POST | `/api/v1/auth/logout` | User | Logout and invalidate session |
+| GET | `/api/v1/auth/me` | User | Get current user info |
+
+### Groups
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/groups` | User | List all groups with stats |
 | GET | `/api/v1/groups/{id}` | User | Get group details |
-| GET | `/api/v1/groups/{id}/queue` | User | Get queued jobs |
+| POST | `/api/v1/groups/{id}/pause` | Admin | Pause dispatching for group |
+| POST | `/api/v1/groups/{id}/unpause` | Admin | Resume dispatching for group |
+
+### Templates
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/groups/{id}/templates` | User | List templates for a group |
+| GET | `/api/v1/templates/{id}` | User | Get template details |
+
+### Queue
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/groups/{id}/queue` | User | Get queued/running jobs |
 | POST | `/api/v1/groups/{id}/queue` | Admin | Add job to queue |
-| PUT | `/api/v1/groups/{id}/queue/reorder` | Admin | Reorder queue |
+| PUT | `/api/v1/groups/{id}/queue/reorder` | Admin | Reorder queue priorities |
+
+### Jobs
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/jobs/{id}` | User | Get job details |
+| PUT | `/api/v1/jobs/{id}` | Admin | Update job fields |
+| DELETE | `/api/v1/jobs/{id}` | Admin | Delete pending job |
+| POST | `/api/v1/jobs/{id}/pause` | Admin | Pause job dispatching |
+| POST | `/api/v1/jobs/{id}/unpause` | Admin | Resume job dispatching |
+| POST | `/api/v1/jobs/{id}/cancel` | Admin | Cancel triggered/running job |
+| PUT | `/api/v1/jobs/{id}/auto-requeue` | Admin | Update auto-requeue settings |
+| POST | `/api/v1/jobs/{id}/disable-requeue` | Admin | Disable auto-requeue |
+
+### History
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/groups/{id}/history` | User | Get completed job history |
+| GET | `/api/v1/groups/{id}/history/stats` | User | Get aggregated history stats |
+
+### Runners
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
 | GET | `/api/v1/runners` | User | List all runners |
-| DELETE | `/api/v1/jobs/{id}` | Admin | Cancel/delete job |
+| GET | `/api/v1/groups/{id}/runners` | User | List runners for a group |
+| POST | `/api/v1/runners/refresh` | Admin | Force refresh runner status |
+
+### System
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/status` | User | System status and health |
+| GET | `/api/v1/ws` | User | WebSocket for real-time updates |
 
 ## Development
 
