@@ -45,10 +45,15 @@ auth:
     enabled: false
     client_id: ${GITHUB_CLIENT_ID}
     client_secret: ${GITHUB_CLIENT_SECRET}
-    allowed_orgs:
-      - ethpandaops
-    role_mapping:
+    # URL to redirect to after successful login (e.g., your UI URL)
+    redirect_url: http://localhost:3000
+    # Role mappings control both access and permissions.
+    # Users must be in at least one mapping to log in.
+    org_role_mapping:
       ethpandaops: admin
+    # Map individual GitHub usernames to roles (case-insensitive)
+    # user_role_mapping:
+    #   octocat: admin
 
 # History retention settings for job cleanup
 history:

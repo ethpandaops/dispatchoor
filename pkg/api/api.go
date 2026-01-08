@@ -1412,7 +1412,18 @@ func (s *server) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	// Redirect to frontend for browser-based flow.
 	redirectURL := r.URL.Query().Get("redirect")
 	if redirectURL == "" {
+		redirectURL = s.cfg.Auth.GitHub.RedirectURL
+	}
+
+	if redirectURL == "" {
 		redirectURL = "/"
+	}
+
+	// Append token to redirect URL for the UI to capture.
+	if strings.Contains(redirectURL, "?") {
+		redirectURL += "&token=" + token
+	} else {
+		redirectURL += "?token=" + token
 	}
 
 	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)

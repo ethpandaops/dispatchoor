@@ -86,11 +86,12 @@ type UserAuth struct {
 
 // GitHubAuthConfig contains GitHub OAuth settings.
 type GitHubAuthConfig struct {
-	Enabled      bool              `yaml:"enabled"`
-	ClientID     string            `yaml:"client_id"`
-	ClientSecret string            `yaml:"client_secret"`
-	AllowedOrgs  []string          `yaml:"allowed_orgs"`
-	RoleMapping  map[string]string `yaml:"role_mapping"`
+	Enabled         bool              `yaml:"enabled"`
+	ClientID        string            `yaml:"client_id"`
+	ClientSecret    string            `yaml:"client_secret"`
+	RedirectURL     string            `yaml:"redirect_url"`
+	OrgRoleMapping  map[string]string `yaml:"org_role_mapping"`
+	UserRoleMapping map[string]string `yaml:"user_role_mapping"`
 }
 
 // HistoryConfig contains job history retention settings.

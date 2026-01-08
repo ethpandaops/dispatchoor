@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/dispatchoor/pkg/config"
@@ -188,49 +189,44 @@ func (s *service) AuthenticateGitHub(ctx context.Context, code string) (*store.U
 		return nil, "", fmt.Errorf("getting github user: %w", err)
 	}
 
-	// Check if user is in allowed orgs.
-	if len(s.cfg.Auth.GitHub.AllowedOrgs) > 0 {
+	// Determine role based on user or org membership.
+	// Role mappings also control access - if not in any mapping, login is rejected.
+	var role store.Role
+
+	var authorized bool
+
+	// Check individual user mapping first (takes priority, case-insensitive).
+	usernameLower := strings.ToLower(githubUser.Login)
+
+	for user, mappedRole := range s.cfg.Auth.GitHub.UserRoleMapping {
+		if strings.ToLower(user) == usernameLower {
+			role = store.Role(mappedRole)
+			authorized = true
+
+			break
+		}
+	}
+
+	// If no user mapping found, check org-based mapping.
+	if !authorized && len(s.cfg.Auth.GitHub.OrgRoleMapping) > 0 {
 		orgs, err := s.getGitHubUserOrgs(ctx, accessToken)
 		if err != nil {
 			return nil, "", fmt.Errorf("getting github orgs: %w", err)
 		}
 
-		allowed := false
-
 		for _, org := range orgs {
-			for _, allowedOrg := range s.cfg.Auth.GitHub.AllowedOrgs {
-				if org == allowedOrg {
-					allowed = true
+			if mappedRole, ok := s.cfg.Auth.GitHub.OrgRoleMapping[org]; ok {
+				role = store.Role(mappedRole)
+				authorized = true
 
-					break
-				}
-			}
-
-			if allowed {
 				break
 			}
 		}
-
-		if !allowed {
-			return nil, "", fmt.Errorf("user not in allowed organizations")
-		}
 	}
 
-	// Determine role based on org membership.
-	role := store.RoleReadOnly
-
-	if len(s.cfg.Auth.GitHub.RoleMapping) > 0 {
-		orgs, _ := s.getGitHubUserOrgs(ctx, accessToken)
-
-		for _, org := range orgs {
-			if mappedRole, ok := s.cfg.Auth.GitHub.RoleMapping[org]; ok {
-				if store.Role(mappedRole) == store.RoleAdmin {
-					role = store.RoleAdmin
-
-					break
-				}
-			}
-		}
+	// Reject if user is not in any role mapping.
+	if !authorized {
+		return nil, "", fmt.Errorf("user not authorized: not in any role mapping")
 	}
 
 	// Get or create user.

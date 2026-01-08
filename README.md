@@ -171,11 +171,27 @@ auth:
     enabled: true
     client_id: ${GITHUB_CLIENT_ID}
     client_secret: ${GITHUB_CLIENT_SECRET}
-    allowed_orgs:
-      - my-org
-    role_mapping:
+    redirect_url: http://localhost:3000  # Where to redirect after login
+    org_role_mapping:
       my-org: admin
+    user_role_mapping:
+      octocat: admin
 ```
+
+To set up GitHub OAuth:
+
+1. Go to your GitHub organization settings → Developer settings → OAuth Apps → New OAuth App
+2. Set the **Authorization callback URL** to `https://your-domain.com/api/v1/auth/github/callback`
+3. After creating the app, copy the **Client ID** and generate a **Client Secret**
+4. Set the environment variables:
+   ```bash
+   export GITHUB_CLIENT_ID="your_client_id"
+   export GITHUB_CLIENT_SECRET="your_client_secret"
+   ```
+5. Use `org_role_mapping` to grant access and assign roles based on organization membership (e.g., `my-org: admin` gives admin role to all members of `my-org`)
+6. Use `user_role_mapping` to grant access and assign roles to individual GitHub users by username (case-insensitive, takes priority over `org_role_mapping`)
+
+Users must be in at least one role mapping (`org_role_mapping` or `user_role_mapping`) to log in.
 
 ### Groups and Templates
 

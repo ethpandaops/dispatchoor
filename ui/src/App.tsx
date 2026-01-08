@@ -8,6 +8,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { GroupPage } from './pages/GroupPage';
 import { RunnersPage } from './pages/RunnersPage';
 import { useAuthStore } from './stores/authStore';
+import { api } from './api/client';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,6 +25,20 @@ function AppRoutes() {
   const { checkAuth, isLoading } = useAuthStore();
 
   useEffect(() => {
+    // Check for OAuth token in URL (from GitHub OAuth callback redirect).
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+
+    if (token) {
+      // Store the token and remove it from URL.
+      api.setToken(token);
+      params.delete('token');
+      const newUrl = params.toString()
+        ? `${window.location.pathname}?${params.toString()}`
+        : window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+    }
+
     checkAuth();
   }, [checkAuth]);
 
