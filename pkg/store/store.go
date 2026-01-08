@@ -71,6 +71,18 @@ type Store interface {
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteUserSessions(ctx context.Context, userID string) error
 
+	// OAuth States (CSRF protection).
+	CreateOAuthState(ctx context.Context, state *OAuthState) error
+	GetOAuthState(ctx context.Context, state string) (*OAuthState, error)
+	DeleteOAuthState(ctx context.Context, state string) error
+	DeleteExpiredOAuthStates(ctx context.Context) error
+
+	// Auth Codes (one-time exchange codes).
+	CreateAuthCode(ctx context.Context, code *AuthCode) error
+	GetAuthCode(ctx context.Context, code string) (*AuthCode, error)
+	DeleteAuthCode(ctx context.Context, code string) error
+	DeleteExpiredAuthCodes(ctx context.Context) error
+
 	// Audit.
 	CreateAuditEntry(ctx context.Context, entry *AuditEntry) error
 	ListAuditEntries(ctx context.Context, opts AuditQueryOpts) ([]*AuditEntry, int, error)
@@ -206,6 +218,21 @@ type Session struct {
 	ID        string    `json:"id"`
 	UserID    string    `json:"user_id"`
 	TokenHash string    `json:"-"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// OAuthState represents a CSRF state token for OAuth flows.
+type OAuthState struct {
+	State     string    `json:"state"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// AuthCode represents a one-time authorization code for token exchange.
+type AuthCode struct {
+	Code      string    `json:"code"`
+	UserID    string    `json:"user_id"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 }

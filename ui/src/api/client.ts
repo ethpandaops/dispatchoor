@@ -109,6 +109,15 @@ class ApiClient {
     return `${this.getApiBase()}/auth/github`;
   }
 
+  async exchangeCode(code: string): Promise<{ token: string; user: User }> {
+    const result = await this.request<{ token: string; user: User }>('/auth/exchange', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    this.setToken(result.token);
+    return result;
+  }
+
   // Groups
   async getGroups(): Promise<GroupWithStats[]> {
     return this.request<GroupWithStats[]>('/groups');

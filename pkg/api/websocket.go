@@ -27,13 +27,34 @@ const (
 	maxMessageSize = 512
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		// In production, validate the origin properly.
-		return true
-	},
+// createUpgrader creates a WebSocket upgrader with origin validation.
+func createUpgrader(allowedOrigins []string) websocket.Upgrader {
+	allowAll := len(allowedOrigins) == 1 && allowedOrigins[0] == "*"
+
+	originSet := make(map[string]bool, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		originSet[origin] = true
+	}
+
+	return websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			// If no origins configured, reject all cross-origin requests.
+			if len(allowedOrigins) == 0 {
+				return r.Header.Get("Origin") == ""
+			}
+
+			// Allow all origins if configured with "*".
+			if allowAll {
+				return true
+			}
+
+			// Check if origin is in allowed list.
+			origin := r.Header.Get("Origin")
+			return originSet[origin]
+		},
+	}
 }
 
 // MessageType represents the type of WebSocket message.
@@ -411,7 +432,7 @@ func (c *Client) handleMessage(msg *Message) {
 }
 
 // ServeWs handles WebSocket requests from the peer.
-func ServeWs(hub *Hub, authSvc auth.Service, w http.ResponseWriter, r *http.Request) {
+func ServeWs(hub *Hub, authSvc auth.Service, allowedOrigins []string, w http.ResponseWriter, r *http.Request) {
 	// Authenticate the user.
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -437,6 +458,9 @@ func ServeWs(hub *Hub, authSvc auth.Service, w http.ResponseWriter, r *http.Requ
 
 		return
 	}
+
+	// Create upgrader with origin validation.
+	upgrader := createUpgrader(allowedOrigins)
 
 	// Upgrade to WebSocket.
 	conn, err := upgrader.Upgrade(w, r, nil)

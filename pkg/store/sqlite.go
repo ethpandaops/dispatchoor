@@ -186,6 +186,21 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		`ALTER TABLE jobs ADD COLUMN workflow_id TEXT`,
 		`ALTER TABLE jobs ADD COLUMN ref TEXT`,
 		`ALTER TABLE jobs ADD COLUMN labels TEXT`,
+		// OAuth states table (CSRF protection).
+		`CREATE TABLE IF NOT EXISTS oauth_states (
+			state TEXT PRIMARY KEY,
+			expires_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at)`,
+		// Auth codes table (one-time exchange codes).
+		`CREATE TABLE IF NOT EXISTS auth_codes (
+			code TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			expires_at TIMESTAMP NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_codes_expires ON auth_codes(expires_at)`,
 	}
 
 	for _, migration := range migrations {
@@ -1816,4 +1831,120 @@ func (s *SQLiteStore) ListAuditEntries(
 	}
 
 	return entries, total, rows.Err()
+}
+
+// ============================================================================
+// OAuth States
+// ============================================================================
+
+// CreateOAuthState creates a new OAuth state for CSRF protection.
+func (s *SQLiteStore) CreateOAuthState(ctx context.Context, state *OAuthState) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO oauth_states (state, expires_at, created_at)
+		VALUES (?, ?, ?)
+	`, state.State, state.ExpiresAt, state.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("inserting oauth_state: %w", err)
+	}
+
+	return nil
+}
+
+// GetOAuthState retrieves an OAuth state by its value.
+func (s *SQLiteStore) GetOAuthState(ctx context.Context, state string) (*OAuthState, error) {
+	var oauthState OAuthState
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT state, expires_at, created_at
+		FROM oauth_states WHERE state = ?
+	`, state).Scan(&oauthState.State, &oauthState.ExpiresAt, &oauthState.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("querying oauth_state: %w", err)
+	}
+
+	return &oauthState, nil
+}
+
+// DeleteOAuthState deletes an OAuth state.
+func (s *SQLiteStore) DeleteOAuthState(ctx context.Context, state string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM oauth_states WHERE state = ?`, state)
+	if err != nil {
+		return fmt.Errorf("deleting oauth_state: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteExpiredOAuthStates deletes all expired OAuth states.
+func (s *SQLiteStore) DeleteExpiredOAuthStates(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM oauth_states WHERE expires_at < ?`, time.Now())
+	if err != nil {
+		return fmt.Errorf("deleting expired oauth_states: %w", err)
+	}
+
+	return nil
+}
+
+// ============================================================================
+// Auth Codes
+// ============================================================================
+
+// CreateAuthCode creates a new one-time auth code for token exchange.
+func (s *SQLiteStore) CreateAuthCode(ctx context.Context, code *AuthCode) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO auth_codes (code, user_id, expires_at, created_at)
+		VALUES (?, ?, ?, ?)
+	`, code.Code, code.UserID, code.ExpiresAt, code.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("inserting auth_code: %w", err)
+	}
+
+	return nil
+}
+
+// GetAuthCode retrieves an auth code by its value.
+func (s *SQLiteStore) GetAuthCode(ctx context.Context, code string) (*AuthCode, error) {
+	var authCode AuthCode
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT code, user_id, expires_at, created_at
+		FROM auth_codes WHERE code = ?
+	`, code).Scan(&authCode.Code, &authCode.UserID, &authCode.ExpiresAt, &authCode.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("querying auth_code: %w", err)
+	}
+
+	return &authCode, nil
+}
+
+// DeleteAuthCode deletes an auth code.
+func (s *SQLiteStore) DeleteAuthCode(ctx context.Context, code string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_codes WHERE code = ?`, code)
+	if err != nil {
+		return fmt.Errorf("deleting auth_code: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteExpiredAuthCodes deletes all expired auth codes.
+func (s *SQLiteStore) DeleteExpiredAuthCodes(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM auth_codes WHERE expires_at < ?`, time.Now())
+	if err != nil {
+		return fmt.Errorf("deleting expired auth_codes: %w", err)
+	}
+
+	return nil
 }
