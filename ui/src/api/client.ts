@@ -60,7 +60,10 @@ class ApiClient {
 
     if (response.status === 401) {
       this.setToken(null);
-      window.dispatchEvent(new CustomEvent('auth:logout'));
+      // Don't dispatch logout event if this IS the logout request (prevents infinite loop)
+      if (!path.endsWith('/auth/logout')) {
+        window.dispatchEvent(new CustomEvent('auth:logout'));
+      }
       throw new Error('Unauthorized');
     }
 
