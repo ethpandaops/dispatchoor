@@ -367,33 +367,56 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// GitHub rate limit info.
-	remaining := s.ghClient.RateLimitRemaining()
-	resetTime := s.ghClient.RateLimitReset()
-
-	githubStatus := ComponentStatusHealthy
-	if remaining < 100 {
-		githubStatus = ComponentStatusDegraded
-	}
-
-	if remaining < 10 {
-		githubStatus = ComponentStatusUnhealthy
+	// GitHub connection and rate limit info.
+	if s.ghClient == nil {
+		resp.GitHub = GitHubStatus{
+			Status:    ComponentStatusUnhealthy,
+			Connected: false,
+			Error:     "GitHub token not configured",
+		}
 
 		if resp.Status == ComponentStatusHealthy {
 			resp.Status = ComponentStatusDegraded
 		}
-	}
+	} else if !s.ghClient.IsConnected() {
+		resp.GitHub = GitHubStatus{
+			Status:    ComponentStatusUnhealthy,
+			Connected: false,
+			Error:     s.ghClient.ConnectionError(),
+		}
 
-	resetIn := time.Until(resetTime)
-	if resetIn < 0 {
-		resetIn = 0
-	}
+		if resp.Status == ComponentStatusHealthy {
+			resp.Status = ComponentStatusDegraded
+		}
+	} else {
+		remaining := s.ghClient.RateLimitRemaining()
+		resetTime := s.ghClient.RateLimitReset()
 
-	resp.GitHub = GitHubStatus{
-		Status:             githubStatus,
-		RateLimitRemaining: remaining,
-		RateLimitReset:     resetTime.UTC().Format(time.RFC3339),
-		ResetIn:            resetIn.Round(time.Second).String(),
+		githubStatus := ComponentStatusHealthy
+		if remaining < 100 {
+			githubStatus = ComponentStatusDegraded
+		}
+
+		if remaining < 10 {
+			githubStatus = ComponentStatusUnhealthy
+
+			if resp.Status == ComponentStatusHealthy {
+				resp.Status = ComponentStatusDegraded
+			}
+		}
+
+		resetIn := time.Until(resetTime)
+		if resetIn < 0 {
+			resetIn = 0
+		}
+
+		resp.GitHub = GitHubStatus{
+			Status:             githubStatus,
+			Connected:          true,
+			RateLimitRemaining: remaining,
+			RateLimitReset:     resetTime.UTC().Format(time.RFC3339),
+			ResetIn:            resetIn.Round(time.Second).String(),
+		}
 	}
 
 	// Queue statistics.
@@ -1104,6 +1127,13 @@ func (s *server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Check if GitHub client is available.
+		if s.ghClient == nil || !s.ghClient.IsConnected() {
+			s.writeError(w, http.StatusServiceUnavailable, "GitHub integration is not available")
+
+			return
+		}
+
 		// Cancel the workflow run on GitHub.
 		if err := s.ghClient.CancelWorkflowRun(r.Context(), owner, repo, *job.RunID); err != nil {
 			s.log.WithError(err).Warn("Cancel request returned error, checking actual run status")
@@ -1293,8 +1323,10 @@ type DatabaseStatus struct {
 // GitHubStatus contains GitHub API rate limit information.
 type GitHubStatus struct {
 	Status             ComponentStatus `json:"status"`
+	Connected          bool            `json:"connected"`
+	Error              string          `json:"error,omitempty"`
 	RateLimitRemaining int             `json:"rate_limit_remaining"`
-	RateLimitReset     string          `json:"rate_limit_reset"`
+	RateLimitReset     string          `json:"rate_limit_reset,omitempty"`
 	ResetIn            string          `json:"reset_in,omitempty"`
 }
 
