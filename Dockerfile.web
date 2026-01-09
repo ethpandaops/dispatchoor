@@ -70,14 +70,26 @@ server {
 }
 EOF
 
-# Copy entrypoint script
+# Copy entrypoint scripts
 COPY <<'EOF' /docker-entrypoint.d/40-envsubst-on-templates.sh
 #!/bin/sh
 set -e
 envsubst '${API_URL}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
 EOF
 
-RUN chmod +x /docker-entrypoint.d/40-envsubst-on-templates.sh
+COPY <<'EOF' /docker-entrypoint.d/30-generate-ui-config.sh
+#!/bin/sh
+set -e
+# Generate UI config.json - uses /api/v1 since nginx proxies to the backend
+cat > /usr/share/nginx/html/config.json << 'CONFIG'
+{
+  "apiUrl": "/api/v1"
+}
+CONFIG
+echo "Generated /usr/share/nginx/html/config.json"
+EOF
+
+RUN chmod +x /docker-entrypoint.d/40-envsubst-on-templates.sh /docker-entrypoint.d/30-generate-ui-config.sh
 
 # Default API URL
 ENV API_URL=http://api:9090

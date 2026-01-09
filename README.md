@@ -434,8 +434,38 @@ The UI loads its configuration from `config.json` at runtime, making it easy to 
   ```
 
 **Docker/Kubernetes:**
-- Mount a custom `config.json` at `/app/ui/dist/config.json`
-- Or use an init container to generate `config.json` from environment variables
+
+The `dispatchoor-web` Docker image automatically generates the UI `config.json` at startup with `apiUrl: "/api/v1"`. The nginx server proxies API requests to the backend using the `API_URL` environment variable.
+
+```yaml
+# docker-compose.yaml example
+services:
+  api:
+    image: dispatchoor:latest
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - GITHUB_TOKEN
+    ports:
+      - "9090:9090"
+
+  web:
+    image: dispatchoor-web:latest
+    environment:
+      - API_URL=http://api:9090  # Where nginx proxies /api/ requests
+    ports:
+      - "3000:80"
+```
+
+To override the UI config, mount a custom `config.json`:
+```yaml
+volumes:
+  - ./custom-config.json:/usr/share/nginx/html/config.json:ro
+```
+
+**Helm Charts:**
+
+Helm charts for deploying dispatchoor on Kubernetes are available at [ethpandaops/general-helm-charts](https://github.com/ethpandaops/general-helm-charts).
 
 ## Architecture
 
