@@ -17,6 +17,10 @@ type Client interface {
 	Start(ctx context.Context) error
 	Stop() error
 
+	// Connection status.
+	IsConnected() bool
+	ConnectionError() string
+
 	// Runners.
 	ListOrgRunners(ctx context.Context, org string) ([]*Runner, error)
 	ListRepoRunners(ctx context.Context, owner, repo string) ([]*Runner, error)
@@ -80,12 +84,14 @@ type WorkflowJob struct {
 
 // client implements Client.
 type client struct {
-	log           logrus.FieldLogger
-	token         string
-	gh            *github.Client
-	mu            sync.RWMutex
-	rateRemaining int
-	rateReset     time.Time
+	log             logrus.FieldLogger
+	token           string
+	gh              *github.Client
+	mu              sync.RWMutex
+	rateRemaining   int
+	rateReset       time.Time
+	connected       bool
+	connectionError string
 }
 
 // Ensure client implements Client.
@@ -100,6 +106,8 @@ func NewClient(log logrus.FieldLogger, token string) Client {
 }
 
 // Start initializes the GitHub client.
+// If authentication fails, the client will be marked as disconnected but no error is returned.
+// Use IsConnected() and ConnectionError() to check the connection status.
 func (c *client) Start(ctx context.Context) error {
 	c.log.Info("Initializing GitHub client")
 
@@ -111,12 +119,21 @@ func (c *client) Start(ctx context.Context) error {
 	// Test authentication by getting rate limit.
 	rate, _, err := c.gh.RateLimit.Get(ctx)
 	if err != nil {
-		return fmt.Errorf("testing GitHub authentication: %w", err)
+		c.mu.Lock()
+		c.connected = false
+		c.connectionError = fmt.Sprintf("authentication failed: %v", err)
+		c.mu.Unlock()
+
+		c.log.WithError(err).Warn("GitHub authentication failed - client will operate in disconnected mode")
+
+		return nil
 	}
 
 	c.mu.Lock()
 	c.rateRemaining = rate.Core.Remaining
 	c.rateReset = rate.Core.Reset.Time
+	c.connected = true
+	c.connectionError = ""
 	c.mu.Unlock()
 
 	c.log.WithFields(logrus.Fields{
@@ -162,6 +179,22 @@ func (c *client) RateLimitReset() time.Time {
 	defer c.mu.RUnlock()
 
 	return c.rateReset
+}
+
+// IsConnected returns true if the GitHub client is connected and authenticated.
+func (c *client) IsConnected() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.connected
+}
+
+// ConnectionError returns the connection error message, if any.
+func (c *client) ConnectionError() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.connectionError
 }
 
 // ListOrgRunners lists all self-hosted runners for an organization.

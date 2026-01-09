@@ -388,11 +388,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("unsupported database driver: %s", c.Database.Driver)
 	}
 
-	// Validate GitHub config.
-	if c.GitHub.Token == "" {
-		return fmt.Errorf("github.token is required")
-	}
-
 	// Validate auth config.
 	if !c.Auth.Basic.Enabled && !c.Auth.GitHub.Enabled {
 		return fmt.Errorf("at least one auth method (basic or github) must be enabled")
@@ -473,6 +468,11 @@ func (c *Config) GetDSN() string {
 	default:
 		return ""
 	}
+}
+
+// HasGitHubToken returns true if a GitHub token is configured.
+func (c *Config) HasGitHubToken() bool {
+	return c.GitHub.Token != ""
 }
 
 // String returns a sanitized string representation of the config (no secrets).
