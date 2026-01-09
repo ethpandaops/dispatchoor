@@ -32,19 +32,19 @@ function AppRoutes() {
       const code = params.get('code');
 
       if (code) {
+        // Remove code from URL FIRST to prevent double-exchange in React Strict Mode.
+        params.delete('code');
+        const newUrl = params.toString()
+          ? `${window.location.pathname}?${params.toString()}`
+          : window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+
         // Exchange the one-time code for a session token.
         try {
           await api.exchangeCode(code);
         } catch (error) {
           console.error('Failed to exchange auth code:', error);
         }
-
-        // Remove code from URL.
-        params.delete('code');
-        const newUrl = params.toString()
-          ? `${window.location.pathname}?${params.toString()}`
-          : window.location.pathname;
-        window.history.replaceState({}, '', newUrl);
       }
 
       checkAuth();
