@@ -115,6 +115,8 @@ type JobTemplate struct {
 	DefaultInputs map[string]string `json:"default_inputs"`
 	Labels        map[string]string `json:"labels"`
 	InConfig      bool              `json:"in_config"`
+	SourceType    string            `json:"source_type"` // "inline", "file", or "url"
+	SourcePath    string            `json:"source_path"` // filename or URL (empty for inline)
 	CreatedAt     time.Time         `json:"created_at"`
 	UpdatedAt     time.Time         `json:"updated_at"`
 }

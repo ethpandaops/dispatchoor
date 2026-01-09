@@ -195,7 +195,7 @@ Users must be in at least one role mapping (`org_role_mapping` or `user_role_map
 
 ### Groups and Templates
 
-Groups define pools of runners identified by labels. Each group can have multiple workflow dispatch templates defined inline or loaded from a separate file:
+Groups define pools of runners identified by labels. Each group can have multiple workflow dispatch templates defined inline, loaded from local files, or fetched from remote URLs:
 
 ```yaml
 groups:
@@ -218,10 +218,13 @@ groups:
             el-client: "geth"
             cl-client: "prysm"
             config: '{"network": "mainnet"}'
-      # Option 2: Load templates from files (paths relative to config file)
+      # Option 2: Load templates from local files (paths relative to config file)
       # workflow_dispatch_templates_files:
       #   - templates/hoodi.yaml
       #   - templates/mainnet.yaml
+      # Option 3: Load templates from remote URLs
+      # workflow_dispatch_templates_urls:
+      #   - https://raw.githubusercontent.com/myorg/templates/main/sync-tests.yaml
 ```
 
 Template file format (`templates/sync-tests.yaml`):
@@ -247,7 +250,7 @@ Template file format (`templates/sync-tests.yaml`):
     cl-client: "lighthouse"
 ```
 
-Both inline templates and file templates can be used together - file templates are appended to inline templates.
+All template sources can be used together - file and URL templates are appended to inline templates. The UI displays badges indicating the source of each template (inline, local file, or URL).
 
 ### Workflow Best Practices
 

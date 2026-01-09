@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -113,6 +115,7 @@ type Group struct {
 	RunnerLabels                   []string                   `yaml:"runner_labels"`
 	WorkflowDispatchTemplates      []WorkflowDispatchTemplate `yaml:"workflow_dispatch_templates"`
 	WorkflowDispatchTemplatesFiles []string                   `yaml:"workflow_dispatch_templates_files"`
+	WorkflowDispatchTemplatesURLs  []string                   `yaml:"workflow_dispatch_templates_urls"`
 }
 
 // WorkflowDispatchTemplate represents a workflow dispatch template configuration.
@@ -125,6 +128,8 @@ type WorkflowDispatchTemplate struct {
 	Ref        string            `yaml:"ref"`
 	Inputs     map[string]string `yaml:"inputs"`
 	Labels     map[string]string `yaml:"labels"`
+	SourceType string            `yaml:"-"` // "inline", "file", or "url" - set during loading
+	SourcePath string            `yaml:"-"` // filename or URL (empty for inline) - set during loading
 }
 
 // Load reads and parses configuration from a YAML file.
@@ -142,10 +147,18 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
 
+	// Mark inline templates with source type.
+	markInlineTemplates(&cfg)
+
 	// Load templates from external files.
 	configDir := filepath.Dir(path)
 	if err := loadTemplateFiles(&cfg, configDir); err != nil {
 		return nil, fmt.Errorf("loading template files: %w", err)
+	}
+
+	// Load templates from remote URLs.
+	if err := loadTemplateURLs(&cfg); err != nil {
+		return nil, fmt.Errorf("loading template URLs: %w", err)
 	}
 
 	// Apply defaults.
@@ -157,6 +170,16 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// markInlineTemplates marks templates defined inline in the config with source type.
+func markInlineTemplates(cfg *Config) {
+	for i := range cfg.Groups.GitHub {
+		for j := range cfg.Groups.GitHub[i].WorkflowDispatchTemplates {
+			cfg.Groups.GitHub[i].WorkflowDispatchTemplates[j].SourceType = "inline"
+			cfg.Groups.GitHub[i].WorkflowDispatchTemplates[j].SourcePath = ""
+		}
+	}
 }
 
 // loadTemplateFiles loads workflow dispatch templates from external files.
@@ -187,7 +210,70 @@ func loadTemplateFiles(cfg *Config, configDir string) error {
 					templateFile, group.ID, err)
 			}
 
+			// Set source type and path for each template from file.
+			for j := range templates {
+				templates[j].SourceType = "file"
+				templates[j].SourcePath = templateFile
+			}
+
 			// Append templates from file to any inline templates.
+			group.WorkflowDispatchTemplates = append(group.WorkflowDispatchTemplates, templates...)
+		}
+	}
+
+	return nil
+}
+
+// loadTemplateURLs loads workflow dispatch templates from remote URLs.
+func loadTemplateURLs(cfg *Config) error {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	for i := range cfg.Groups.GitHub {
+		group := &cfg.Groups.GitHub[i]
+
+		for _, templateURL := range group.WorkflowDispatchTemplatesURLs {
+			resp, err := client.Get(templateURL)
+			if err != nil {
+				return fmt.Errorf("fetching template URL %s for group %s: %w",
+					templateURL, group.ID, err)
+			}
+
+			data, err := io.ReadAll(resp.Body)
+
+			closeErr := resp.Body.Close()
+			if err != nil {
+				return fmt.Errorf("reading response from %s for group %s: %w",
+					templateURL, group.ID, err)
+			}
+
+			if closeErr != nil {
+				return fmt.Errorf("closing response body from %s for group %s: %w",
+					templateURL, group.ID, closeErr)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("fetching template URL %s for group %s: HTTP %d",
+					templateURL, group.ID, resp.StatusCode)
+			}
+
+			// Expand environment variables.
+			expanded := expandEnvVars(string(data))
+
+			var templates []WorkflowDispatchTemplate
+			if err := yaml.Unmarshal([]byte(expanded), &templates); err != nil {
+				return fmt.Errorf("parsing template URL %s for group %s: %w",
+					templateURL, group.ID, err)
+			}
+
+			// Set source type and path for each template from URL.
+			for j := range templates {
+				templates[j].SourceType = "url"
+				templates[j].SourcePath = templateURL
+			}
+
+			// Append templates from URL to any existing templates.
 			group.WorkflowDispatchTemplates = append(group.WorkflowDispatchTemplates, templates...)
 		}
 	}

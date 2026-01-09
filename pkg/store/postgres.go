@@ -264,6 +264,17 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 			created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_codes_expires ON auth_codes(expires_at)`,
+		// Migration: Add source_type and source_path columns to job_templates table.
+		`DO $$ BEGIN
+			ALTER TABLE job_templates ADD COLUMN source_type TEXT NOT NULL DEFAULT 'inline';
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE job_templates ADD COLUMN source_path TEXT NOT NULL DEFAULT '';
+		EXCEPTION
+			WHEN duplicate_column THEN NULL;
+		END $$`,
 	}
 
 	for _, migration := range migrations {
@@ -408,10 +419,11 @@ func (s *PostgresStore) CreateJobTemplate(ctx context.Context, template *JobTemp
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO job_templates (id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO job_templates (id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, source_type, source_path, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`, template.ID, template.GroupID, template.Name, template.Owner, template.Repo,
-		template.WorkflowID, template.Ref, string(inputsJSON), string(labelsJSON), template.InConfig, template.CreatedAt, template.UpdatedAt)
+		template.WorkflowID, template.Ref, string(inputsJSON), string(labelsJSON), template.InConfig,
+		template.SourceType, template.SourcePath, template.CreatedAt, template.UpdatedAt)
 
 	if err != nil {
 		return fmt.Errorf("inserting job_template: %w", err)
@@ -427,11 +439,11 @@ func (s *PostgresStore) GetJobTemplate(ctx context.Context, id string) (*JobTemp
 	var inputsJSON, labelsJSON sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, created_at, updated_at
+		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, source_type, source_path, created_at, updated_at
 		FROM job_templates WHERE id = $1
 	`, id).Scan(&template.ID, &template.GroupID, &template.Name, &template.Owner,
 		&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON, &labelsJSON,
-		&template.InConfig, &template.CreatedAt, &template.UpdatedAt)
+		&template.InConfig, &template.SourceType, &template.SourcePath, &template.CreatedAt, &template.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -459,7 +471,7 @@ func (s *PostgresStore) GetJobTemplate(ctx context.Context, id string) (*JobTemp
 // ListJobTemplatesByGroup retrieves all job templates for a group.
 func (s *PostgresStore) ListJobTemplatesByGroup(ctx context.Context, groupID string) ([]*JobTemplate, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, created_at, updated_at
+		SELECT id, group_id, name, owner, repo, workflow_id, ref, default_inputs, labels, in_config, source_type, source_path, created_at, updated_at
 		FROM job_templates WHERE group_id = $1 ORDER BY name
 	`, groupID)
 	if err != nil {
@@ -477,7 +489,7 @@ func (s *PostgresStore) ListJobTemplatesByGroup(ctx context.Context, groupID str
 
 		if err := rows.Scan(&template.ID, &template.GroupID, &template.Name, &template.Owner,
 			&template.Repo, &template.WorkflowID, &template.Ref, &inputsJSON, &labelsJSON,
-			&template.InConfig, &template.CreatedAt, &template.UpdatedAt); err != nil {
+			&template.InConfig, &template.SourceType, &template.SourcePath, &template.CreatedAt, &template.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning job_template: %w", err)
 		}
 
@@ -514,10 +526,10 @@ func (s *PostgresStore) UpdateJobTemplate(ctx context.Context, template *JobTemp
 	template.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE job_templates SET name = $1, owner = $2, repo = $3, workflow_id = $4, ref = $5, default_inputs = $6, labels = $7, in_config = $8, updated_at = $9
-		WHERE id = $10
+		UPDATE job_templates SET name = $1, owner = $2, repo = $3, workflow_id = $4, ref = $5, default_inputs = $6, labels = $7, in_config = $8, source_type = $9, source_path = $10, updated_at = $11
+		WHERE id = $12
 	`, template.Name, template.Owner, template.Repo, template.WorkflowID, template.Ref,
-		string(inputsJSON), string(labelsJSON), template.InConfig, template.UpdatedAt, template.ID)
+		string(inputsJSON), string(labelsJSON), template.InConfig, template.SourceType, template.SourcePath, template.UpdatedAt, template.ID)
 
 	if err != nil {
 		return fmt.Errorf("updating job_template: %w", err)
