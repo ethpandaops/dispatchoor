@@ -388,11 +388,14 @@ make dev-api
 # Run UI in development mode (separate terminal)
 make dev-ui
 
-# Run tests
-make test
+# Run API tests
+make test-api
 
-# Run linter
-make lint
+# Run API linter
+make lint-api
+
+# Run UI linter
+make lint-ui
 ```
 
 ### UI Configuration
