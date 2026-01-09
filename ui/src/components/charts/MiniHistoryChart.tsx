@@ -1,12 +1,6 @@
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { api } from '../../api/client';
 
 interface MiniHistoryChartProps {
@@ -51,12 +45,39 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
   );
 }
 
+const CHART_HEIGHT = 80; // h-20 = 5rem = 80px
+
 export function MiniHistoryChart({ groupId }: MiniHistoryChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
   const { data, isLoading } = useQuery({
     queryKey: ['historyStats', groupId, '24h'],
     queryFn: () => api.getHistoryStats(groupId, '24h'),
     refetchInterval: 60000,
   });
+
+  // Track container width with ResizeObserver.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateWidth = () => {
+      const { width } = container.getBoundingClientRect();
+      if (width > 0) {
+        setContainerWidth(width);
+      }
+    };
+
+    // Check immediately.
+    updateWidth();
+
+    // Observe for size changes.
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(container);
+
+    return () => observer.disconnect();
+  }, []);
 
   const chartData = data?.buckets.map((bucket) => ({
     timestamp: formatTimestamp(bucket.timestamp),
@@ -67,26 +88,23 @@ export function MiniHistoryChart({ groupId }: MiniHistoryChartProps) {
 
   const hasData = data && data.totals.completed + data.totals.failed + data.totals.cancelled > 0;
 
-  if (isLoading) {
-    return (
-      <div className="h-20 flex items-center justify-center">
-        <div className="text-xs text-zinc-600">Loading...</div>
-      </div>
-    );
-  }
-
-  if (!hasData) {
-    return (
-      <div className="h-20 flex items-center justify-center">
-        <div className="text-xs text-zinc-600">No history data</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="h-20">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} margin={{ top: 5, right: 5, left: -30, bottom: 0 }}>
+    <div ref={containerRef} className="h-20">
+      {isLoading ? (
+        <div className="flex h-full items-center justify-center">
+          <div className="text-xs text-zinc-600">Loading...</div>
+        </div>
+      ) : !hasData ? (
+        <div className="flex h-full items-center justify-center">
+          <div className="text-xs text-zinc-600">No history data</div>
+        </div>
+      ) : containerWidth > 0 ? (
+        <BarChart
+          width={containerWidth}
+          height={CHART_HEIGHT}
+          data={chartData}
+          margin={{ top: 5, right: 5, left: -30, bottom: 0 }}
+        >
           <XAxis
             dataKey="timestamp"
             tick={{ fontSize: 8, fill: '#52525b' }}
@@ -106,7 +124,7 @@ export function MiniHistoryChart({ groupId }: MiniHistoryChartProps) {
           <Bar dataKey="failed" stackId="a" fill={COLORS.failed} />
           <Bar dataKey="cancelled" stackId="a" fill={COLORS.cancelled} />
         </BarChart>
-      </ResponsiveContainer>
+      ) : null}
     </div>
   );
 }
