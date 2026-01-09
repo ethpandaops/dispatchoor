@@ -35,7 +35,7 @@ Instead of triggering workflows on a schedule and hoping runners are available, 
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.24+
 - Node.js 22+
 - A GitHub [PAT](https://github.com/settings/personal-access-tokens) with at least the following scopes:
   - Repo : Actions - Read/Write
@@ -300,6 +300,8 @@ This pattern allows you to:
 > *Important:* Ideally you want you group configuration to match the `runs-on` labels of your workflow. Dispatchoor can't decide by itself on which runners a workflow should be executed. So you group configuration and dispatched workflow should have the same runner labels.
 
 ## API Endpoints
+
+Full API documentation is available in [OpenAPI/Swagger format](pkg/api/docs/swagger.json) ([YAML](pkg/api/docs/swagger.yaml)).
 
 ### Public
 

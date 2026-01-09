@@ -1718,6 +1718,14 @@ const docTemplate = `{
                 "repo": {
                     "type": "string"
                 },
+                "source_path": {
+                    "description": "filename or URL (empty for inline)",
+                    "type": "string"
+                },
+                "source_type": {
+                    "description": "\"inline\", \"file\", or \"url\"",
+                    "type": "string"
+                },
                 "updated_at": {
                     "type": "string"
                 },
