@@ -33,6 +33,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const subscribedGroupsRef = useRef<Set<string>>(new Set());
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
+  // Flag to prevent reconnect and close pending connections when intentionally disconnecting
+  const isDisconnectingRef = useRef(false);
 
   // Store options and queryClient in refs to avoid stale closures
   const optionsRef = useRef(options);
@@ -47,6 +49,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   }, [options, queryClient]);
 
   const connect = useCallback(() => {
+    // Reset the disconnecting flag when connecting
+    isDisconnectingRef.current = false;
+
     const token = api.getToken();
     if (!token) {
       return;
@@ -109,6 +114,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        // If disconnect was called while we were connecting, close immediately
+        if (isDisconnectingRef.current) {
+          ws.close();
+          return;
+        }
         setIsConnected(true);
         // Re-subscribe to all groups
         subscribedGroupsRef.current.forEach((groupId) => {
@@ -119,8 +129,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       ws.onclose = () => {
         setIsConnected(false);
         wsRef.current = null;
-        // Attempt to reconnect after 3 seconds using ref
-        reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 3000);
+        // Only attempt to reconnect if we're not intentionally disconnecting
+        if (!isDisconnectingRef.current) {
+          reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 3000);
+        }
       };
 
       ws.onerror = () => {
@@ -137,7 +149,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       };
     } catch {
       // Connection failed, will retry using ref
-      reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 3000);
+      if (!isDisconnectingRef.current) {
+        reconnectTimeoutRef.current = setTimeout(() => connectRef.current(), 3000);
+      }
     }
   }, []);
 
@@ -161,11 +175,17 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   }, []);
 
   const disconnect = useCallback(() => {
+    isDisconnectingRef.current = true;
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = undefined;
     }
     if (wsRef.current) {
-      wsRef.current.close();
+      // Only close if already open - if still connecting, the onopen handler
+      // will check isDisconnectingRef and close it then
+      if (wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.close();
+      }
       wsRef.current = null;
     }
     setIsConnected(false);
