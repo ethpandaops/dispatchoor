@@ -1992,6 +1992,8 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 				DefaultInputs: tmplCfg.Inputs,
 				Labels:        tmplCfg.Labels,
 				InConfig:      true,
+				SourceType:    tmplCfg.SourceType,
+				SourcePath:    tmplCfg.SourcePath,
 				CreatedAt:     now,
 				UpdatedAt:     now,
 			}

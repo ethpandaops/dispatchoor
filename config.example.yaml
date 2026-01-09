@@ -70,11 +70,13 @@ groups:
         - self-hosted
         - synctest
         - Disk2TB
-      # Templates can be defined inline or loaded from separate files:
+      # Templates can be defined inline, loaded from local files, or fetched from remote URLs:
       # workflow_dispatch_templates_files:
       #   - templates/hoodi.yaml
       #   - templates/mainnet.yaml
-      # Both can be used together - file templates are appended to inline templates.
+      # workflow_dispatch_templates_urls:
+      #   - https://raw.githubusercontent.com/myorg/templates/main/sync-tests.yaml
+      # All sources can be used together - file and URL templates are appended to inline templates.
       workflow_dispatch_templates:
         - id: sync-test-hoodi-geth-prysm
           name: Sync Test (Hoodi) - geth/prysm

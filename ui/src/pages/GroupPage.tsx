@@ -1554,6 +1554,30 @@ export function GroupPage() {
                                 Not in config
                               </span>
                             )}
+                            {template.source_type === 'file' && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-sm bg-blue-500/20 px-1.5 py-0.5 text-xs text-blue-300"
+                                title={`Loaded from local file: ${template.source_path}`}
+                              >
+                                <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                {template.source_path.split('/').pop()}
+                              </span>
+                            )}
+                            {template.source_type === 'url' && (
+                              <span
+                                className="inline-flex items-center gap-1 rounded-sm bg-purple-500/20 px-1.5 py-0.5 text-xs text-purple-300"
+                                title={`Loaded from URL: ${template.source_path}`}
+                              >
+                                <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                </svg>
+                                URL
+                              </span>
+                            )}
                           </div>
                           {/* Template labels */}
                           {template.labels && Object.keys(template.labels).length > 0 && (

@@ -28,6 +28,8 @@ export interface GroupWithStats extends Group {
   template_count: number;
 }
 
+export type TemplateSourceType = 'inline' | 'file' | 'url';
+
 export interface JobTemplate {
   id: string;
   group_id: string;
@@ -39,6 +41,8 @@ export interface JobTemplate {
   default_inputs: Record<string, string>;
   labels?: Record<string, string>;
   in_config: boolean;
+  source_type: TemplateSourceType;
+  source_path: string;
   created_at: string;
   updated_at: string;
 }

@@ -22,6 +22,7 @@ export function ApiDocsPage() {
         setSidebarCollapsed(false);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run only on mount/unmount
   }, []);
 
   const config: ReferenceProps['configuration'] = {
