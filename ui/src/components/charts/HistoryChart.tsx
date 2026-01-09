@@ -1,15 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip } from 'recharts';
 import { api } from '../../api/client';
 import type { HistoryStatsTimeRange } from '../../types';
 
@@ -33,6 +24,8 @@ const COLORS = {
   failed: '#ef4444', // red-500
   cancelled: '#71717a', // zinc-500
 };
+
+const CHART_HEIGHT = 192; // h-48 = 12rem = 192px
 
 function formatTimestamp(timestamp: string, range: HistoryStatsTimeRange): string {
   const date = new Date(timestamp);
@@ -82,8 +75,32 @@ function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
 }
 
 export function HistoryChart({ groupId }: HistoryChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
   const [timeRange, setTimeRange] = useState<HistoryStatsTimeRange>('auto');
   const [chartType, setChartType] = useState<ChartType>('bar');
+
+  // Track container width with ResizeObserver.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateWidth = () => {
+      const { width } = container.getBoundingClientRect();
+      if (width > 0) {
+        setContainerWidth(width);
+      }
+    };
+
+    // Check immediately.
+    updateWidth();
+
+    // Observe for size changes.
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(container);
+
+    return () => observer.disconnect();
+  }, []);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['historyStats', groupId, timeRange],
@@ -152,7 +169,7 @@ export function HistoryChart({ groupId }: HistoryChartProps) {
       </div>
 
       {/* Chart */}
-      <div className="h-48">
+      <div ref={containerRef} className="h-48">
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-sm text-zinc-500">Loading...</div>
@@ -165,72 +182,80 @@ export function HistoryChart({ groupId }: HistoryChartProps) {
           <div className="flex h-full items-center justify-center">
             <div className="text-sm text-zinc-500">No historical data available</div>
           </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            {chartType === 'bar' ? (
-              <BarChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fontSize: 10, fill: '#71717a' }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#3f3f46' }}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: '#71717a' }}
-                  tickLine={false}
-                  axisLine={false}
-                  allowDecimals={false}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="completed" stackId="a" fill={COLORS.completed} name="Completed" />
-                <Bar dataKey="failed" stackId="a" fill={COLORS.failed} name="Failed" />
-                <Bar dataKey="cancelled" stackId="a" fill={COLORS.cancelled} name="Cancelled" />
-              </BarChart>
-            ) : (
-              <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
-                <XAxis
-                  dataKey="timestamp"
-                  tick={{ fontSize: 10, fill: '#71717a' }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#3f3f46' }}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: '#71717a' }}
-                  tickLine={false}
-                  axisLine={false}
-                  allowDecimals={false}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="completed"
-                  stroke={COLORS.completed}
-                  strokeWidth={2}
-                  dot={false}
-                  name="Completed"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="failed"
-                  stroke={COLORS.failed}
-                  strokeWidth={2}
-                  dot={false}
-                  name="Failed"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="cancelled"
-                  stroke={COLORS.cancelled}
-                  strokeWidth={2}
-                  dot={false}
-                  name="Cancelled"
-                />
-              </LineChart>
-            )}
-          </ResponsiveContainer>
-        )}
+        ) : containerWidth > 0 ? (
+          chartType === 'bar' ? (
+            <BarChart
+              width={containerWidth}
+              height={CHART_HEIGHT}
+              data={chartData}
+              margin={{ top: 5, right: 5, left: -20, bottom: 5 }}
+            >
+              <XAxis
+                dataKey="timestamp"
+                tick={{ fontSize: 10, fill: '#71717a' }}
+                tickLine={false}
+                axisLine={{ stroke: '#3f3f46' }}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: '#71717a' }}
+                tickLine={false}
+                axisLine={false}
+                allowDecimals={false}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="completed" stackId="a" fill={COLORS.completed} name="Completed" />
+              <Bar dataKey="failed" stackId="a" fill={COLORS.failed} name="Failed" />
+              <Bar dataKey="cancelled" stackId="a" fill={COLORS.cancelled} name="Cancelled" />
+            </BarChart>
+          ) : (
+            <LineChart
+              width={containerWidth}
+              height={CHART_HEIGHT}
+              data={chartData}
+              margin={{ top: 5, right: 5, left: -20, bottom: 5 }}
+            >
+              <XAxis
+                dataKey="timestamp"
+                tick={{ fontSize: 10, fill: '#71717a' }}
+                tickLine={false}
+                axisLine={{ stroke: '#3f3f46' }}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: '#71717a' }}
+                tickLine={false}
+                axisLine={false}
+                allowDecimals={false}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Line
+                type="monotone"
+                dataKey="completed"
+                stroke={COLORS.completed}
+                strokeWidth={2}
+                dot={false}
+                name="Completed"
+              />
+              <Line
+                type="monotone"
+                dataKey="failed"
+                stroke={COLORS.failed}
+                strokeWidth={2}
+                dot={false}
+                name="Failed"
+              />
+              <Line
+                type="monotone"
+                dataKey="cancelled"
+                stroke={COLORS.cancelled}
+                strokeWidth={2}
+                dot={false}
+                name="Cancelled"
+              />
+            </LineChart>
+          )
+        ) : null}
       </div>
 
       {/* Legend with totals */}
