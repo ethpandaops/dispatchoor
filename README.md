@@ -1,4 +1,4 @@
-# Dispatchoor
+<h1 align="center">Dispatchoor</h1>
 
 <p align="center">
   <img src="ui/public/images/dispatchoor_logo_white.png" alt="Dispatchoor Logo" width="400">
@@ -28,6 +28,8 @@ Instead of triggering workflows on a schedule and hoping runners are available, 
 - **Authentication**: Basic auth and GitHub OAuth with role-based access control
 - **Metrics**: Prometheus endpoint for monitoring and alerting
 - **Database Support**: SQLite (default) or PostgreSQL
+
+![Dispatchoor Dashboard](ui/public/images/screenshot.png)
 
 ## Getting Started
 
@@ -295,14 +297,7 @@ This pattern allows you to:
 - Set custom timeouts per job dispatch
 - Pass any additional parameters your workflow needs
 
-### Dispatcher
-
-```yaml
-dispatcher:
-  enabled: true
-  interval: 10s      # How often to check for idle runners
-  max_concurrent: 5  # Max concurrent jobs per group
-```
+> *Important:* Ideally you want you group configuration to match the `runs-on` labels of your workflow. Dispatchoor can't decide by itself on which runners a workflow should be executed. So you group configuration and dispatched workflow should have the same runner labels.
 
 ## API Endpoints
 
