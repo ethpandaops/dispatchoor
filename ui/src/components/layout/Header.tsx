@@ -42,13 +42,11 @@ export function Header() {
         </svg>
       </button>
 
-      <div className="flex flex-1 items-center gap-2">
-        <Link to="/" className="text-lg font-semibold text-zinc-100 hover:text-white">
+      <div className="flex flex-1 items-center">
+        <Link to="/" className="flex items-center gap-2 text-lg font-semibold text-zinc-100 hover:text-white">
+          <img src="/images/dispatchoor_logo_white.png" alt="Dispatchoor" className="h-8" />
           Dispatchoor
         </Link>
-        <span className="rounded-sm bg-blue-500/20 px-2 py-0.5 text-xs font-medium text-blue-400">
-          beta
-        </span>
       </div>
 
       <div className="flex items-center gap-3">

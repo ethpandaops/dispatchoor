@@ -1,5 +1,9 @@
 # Dispatchoor
 
+<p align="center">
+  <img src="ui/public/images/dispatchoor_logo_white.png" alt="Dispatchoor Logo" width="400">
+</p>
+
 > **Note:** This is still a work in progress and should not be used on a production system. Use at your own risk.
 
 A GitHub Actions workflow orchestrator that dispatches jobs based on runner availability, not blind schedules.

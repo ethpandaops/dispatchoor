@@ -33,6 +33,11 @@ export function LoginPage() {
     <div className="min-h-dvh flex items-center justify-center bg-zinc-950 px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
+          <img
+            src="/images/dispatchoor_logo_white.png"
+            alt="Dispatchoor Logo"
+            className="h-24 mx-auto mb-4"
+          />
           <h1 className="text-2xl font-bold text-white">Dispatchoor</h1>
           <p className="text-zinc-400 mt-2">Sign in to manage your workflows</p>
         </div>
