@@ -31,34 +31,36 @@ type Server interface {
 
 // server implements Server.
 type server struct {
-	log      logrus.FieldLogger
-	cfg      *config.Config
-	store    store.Store
-	queue    queue.Service
-	auth     auth.Service
-	ghClient github.Client
-	metrics  *metrics.Metrics
-	hub      *Hub
-	srv      *http.Server
-	router   chi.Router
+	log            logrus.FieldLogger
+	cfg            *config.Config
+	store          store.Store
+	queue          queue.Service
+	auth           auth.Service
+	runnersClient  github.Client
+	dispatchClient github.Client
+	metrics        *metrics.Metrics
+	hub            *Hub
+	srv            *http.Server
+	router         chi.Router
 }
 
 // Ensure server implements Server.
 var _ Server = (*server)(nil)
 
 // NewServer creates a new API server.
-func NewServer(log logrus.FieldLogger, cfg *config.Config, st store.Store, q queue.Service, authSvc auth.Service, ghClient github.Client, m *metrics.Metrics) Server {
+func NewServer(log logrus.FieldLogger, cfg *config.Config, st store.Store, q queue.Service, authSvc auth.Service, runnersClient, dispatchClient github.Client, m *metrics.Metrics) Server {
 	hub := NewHub(log)
 
 	s := &server{
-		log:      log.WithField("component", "api"),
-		cfg:      cfg,
-		store:    st,
-		queue:    q,
-		auth:     authSvc,
-		ghClient: ghClient,
-		metrics:  m,
-		hub:      hub,
+		log:            log.WithField("component", "api"),
+		cfg:            cfg,
+		store:          st,
+		queue:          q,
+		auth:           authSvc,
+		runnersClient:  runnersClient,
+		dispatchClient: dispatchClient,
+		metrics:        m,
+		hub:            hub,
 	}
 
 	// Set up callback to broadcast job state changes via WebSocket.
@@ -367,42 +369,37 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// GitHub connection and rate limit info.
-	if s.ghClient == nil {
-		resp.GitHub = GitHubStatus{
-			Status:    ComponentStatusUnhealthy,
-			Connected: false,
-			Error:     "GitHub token not configured",
+	// GitHub connection and rate limit info for both clients.
+	resp.GitHub = GitHubClientsStatus{}
+
+	// Helper function to get status for a single client.
+	getClientStatus := func(client github.Client, name string) *GitHubClientStatus {
+		if client == nil {
+			return &GitHubClientStatus{
+				Status:    ComponentStatusUnhealthy,
+				Connected: false,
+				Error:     name + " token not configured",
+			}
 		}
 
-		if resp.Status == ComponentStatusHealthy {
-			resp.Status = ComponentStatusDegraded
-		}
-	} else if !s.ghClient.IsConnected() {
-		resp.GitHub = GitHubStatus{
-			Status:    ComponentStatusUnhealthy,
-			Connected: false,
-			Error:     s.ghClient.ConnectionError(),
+		if !client.IsConnected() {
+			return &GitHubClientStatus{
+				Status:    ComponentStatusUnhealthy,
+				Connected: false,
+				Error:     client.ConnectionError(),
+			}
 		}
 
-		if resp.Status == ComponentStatusHealthy {
-			resp.Status = ComponentStatusDegraded
-		}
-	} else {
-		remaining := s.ghClient.RateLimitRemaining()
-		resetTime := s.ghClient.RateLimitReset()
+		remaining := client.RateLimitRemaining()
+		resetTime := client.RateLimitReset()
 
-		githubStatus := ComponentStatusHealthy
+		clientStatus := ComponentStatusHealthy
 		if remaining < 100 {
-			githubStatus = ComponentStatusDegraded
+			clientStatus = ComponentStatusDegraded
 		}
 
 		if remaining < 10 {
-			githubStatus = ComponentStatusUnhealthy
-
-			if resp.Status == ComponentStatusHealthy {
-				resp.Status = ComponentStatusDegraded
-			}
+			clientStatus = ComponentStatusUnhealthy
 		}
 
 		resetIn := time.Until(resetTime)
@@ -410,12 +407,23 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			resetIn = 0
 		}
 
-		resp.GitHub = GitHubStatus{
-			Status:             githubStatus,
+		return &GitHubClientStatus{
+			Status:             clientStatus,
 			Connected:          true,
 			RateLimitRemaining: remaining,
 			RateLimitReset:     resetTime.UTC().Format(time.RFC3339),
 			ResetIn:            resetIn.Round(time.Second).String(),
+		}
+	}
+
+	resp.GitHub.Runners = getClientStatus(s.runnersClient, "Runners")
+	resp.GitHub.Dispatch = getClientStatus(s.dispatchClient, "Dispatch")
+
+	// Update overall status based on GitHub clients.
+	if (resp.GitHub.Runners != nil && resp.GitHub.Runners.Status == ComponentStatusUnhealthy) ||
+		(resp.GitHub.Dispatch != nil && resp.GitHub.Dispatch.Status == ComponentStatusUnhealthy) {
+		if resp.Status == ComponentStatusHealthy {
+			resp.Status = ComponentStatusDegraded
 		}
 	}
 
@@ -1127,21 +1135,21 @@ func (s *server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Check if GitHub client is available.
-		if s.ghClient == nil || !s.ghClient.IsConnected() {
+		// Check if dispatch client is available.
+		if s.dispatchClient == nil || !s.dispatchClient.IsConnected() {
 			s.writeError(w, http.StatusServiceUnavailable, "GitHub integration is not available")
 
 			return
 		}
 
 		// Cancel the workflow run on GitHub.
-		if err := s.ghClient.CancelWorkflowRun(r.Context(), owner, repo, *job.RunID); err != nil {
+		if err := s.dispatchClient.CancelWorkflowRun(r.Context(), owner, repo, *job.RunID); err != nil {
 			s.log.WithError(err).Warn("Cancel request returned error, checking actual run status")
 
 			// Check if the run was actually cancelled despite the error.
 			// GitHub can return transient errors like "job scheduled on GitHub side"
 			// even when the cancellation succeeds.
-			run, getErr := s.ghClient.GetWorkflowRun(r.Context(), owner, repo, *job.RunID)
+			run, getErr := s.dispatchClient.GetWorkflowRun(r.Context(), owner, repo, *job.RunID)
 			if getErr != nil {
 				s.log.WithError(getErr).Error("Failed to verify workflow run status after cancel error")
 				s.writeError(w, http.StatusInternalServerError, "Failed to cancel workflow run on GitHub")
@@ -1320,14 +1328,20 @@ type DatabaseStatus struct {
 	Error   string          `json:"error,omitempty"`
 }
 
-// GitHubStatus contains GitHub API rate limit information.
-type GitHubStatus struct {
+// GitHubClientStatus contains status and rate limit information for a single GitHub client.
+type GitHubClientStatus struct {
 	Status             ComponentStatus `json:"status"`
 	Connected          bool            `json:"connected"`
 	Error              string          `json:"error,omitempty"`
 	RateLimitRemaining int             `json:"rate_limit_remaining"`
 	RateLimitReset     string          `json:"rate_limit_reset,omitempty"`
 	ResetIn            string          `json:"reset_in,omitempty"`
+}
+
+// GitHubClientsStatus contains status for both GitHub clients.
+type GitHubClientsStatus struct {
+	Runners  *GitHubClientStatus `json:"runners,omitempty"`
+	Dispatch *GitHubClientStatus `json:"dispatch,omitempty"`
 }
 
 // QueueStats contains queue statistics.
@@ -1346,12 +1360,12 @@ type VersionInfo struct {
 
 // SystemStatusResponse is the comprehensive status response.
 type SystemStatusResponse struct {
-	Status    ComponentStatus `json:"status"`
-	Timestamp string          `json:"timestamp"`
-	Database  DatabaseStatus  `json:"database"`
-	GitHub    GitHubStatus    `json:"github"`
-	Queue     QueueStats      `json:"queue"`
-	Version   VersionInfo     `json:"version"`
+	Status    ComponentStatus     `json:"status"`
+	Timestamp string              `json:"timestamp"`
+	Database  DatabaseStatus      `json:"database"`
+	GitHub    GitHubClientsStatus `json:"github"`
+	Queue     QueueStats          `json:"queue"`
+	Version   VersionInfo         `json:"version"`
 }
 
 // HistoryResponse wraps the paginated history response.

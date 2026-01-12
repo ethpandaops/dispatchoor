@@ -146,11 +146,18 @@ export interface DatabaseStatus {
   error?: string;
 }
 
-export interface GitHubStatus {
+export interface GitHubClientStatus {
   status: ComponentStatus;
+  connected: boolean;
+  error?: string;
   rate_limit_remaining: number;
   rate_limit_reset: string;
   reset_in?: string;
+}
+
+export interface GitHubClientsStatus {
+  runners?: GitHubClientStatus;
+  dispatch?: GitHubClientStatus;
 }
 
 export interface QueueStats {
@@ -169,7 +176,7 @@ export interface SystemStatus {
   status: ComponentStatus;
   timestamp: string;
   database: DatabaseStatus;
-  github: GitHubStatus;
+  github: GitHubClientsStatus;
   queue: QueueStats;
   version: VersionInfo;
 }
