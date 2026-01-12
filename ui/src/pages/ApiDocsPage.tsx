@@ -31,6 +31,7 @@ export function ApiDocsPage() {
     darkMode: true,
     layout: 'modern',
     hideDarkModeToggle: true,
+    baseServerURL: getConfig().apiUrl,
   };
 
   return (
