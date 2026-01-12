@@ -124,23 +124,55 @@ export function StatusIndicator() {
 
           {/* GitHub API Status */}
           <div className="border-b border-zinc-800 px-3 py-2">
-            <div className="flex items-center justify-between">
+            <div className="mb-1">
               <span className="text-xs font-medium text-zinc-400">GitHub API</span>
-              {systemStatus?.github ? (
-                <div className="flex items-center gap-1.5">
-                  <div className={`size-2 rounded-full ${getStatusColor(systemStatus.github.status)}`} />
-                  <span className={`text-xs ${getStatusTextColor(systemStatus.github.status)}`}>
-                    {systemStatus.github.rate_limit_remaining} remaining
-                  </span>
-                </div>
-              ) : (
-                <span className="text-xs text-zinc-500">—</span>
-              )}
             </div>
-            {systemStatus?.github && (
-              <div className="mt-1 text-xs text-zinc-500">
-                Resets {systemStatus.github.reset_in || 'soon'}
+            {systemStatus?.github ? (
+              <div className="space-y-1.5">
+                {/* Runners Client */}
+                {systemStatus.github.runners && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-zinc-500">Runners</span>
+                    <div className="flex items-center gap-1.5">
+                      <div className={`size-2 rounded-full ${getStatusColor(systemStatus.github.runners.status)}`} />
+                      <span className={`text-xs ${getStatusTextColor(systemStatus.github.runners.status)}`}>
+                        {systemStatus.github.runners.connected
+                          ? `${systemStatus.github.runners.rate_limit_remaining} remaining`
+                          : 'Not configured'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {systemStatus.github.runners?.connected && systemStatus.github.runners.reset_in && (
+                  <div className="text-right text-xs text-zinc-500">
+                    Resets {systemStatus.github.runners.reset_in}
+                  </div>
+                )}
+                {/* Dispatch Client */}
+                {systemStatus.github.dispatch && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-zinc-500">Dispatch</span>
+                    <div className="flex items-center gap-1.5">
+                      <div className={`size-2 rounded-full ${getStatusColor(systemStatus.github.dispatch.status)}`} />
+                      <span className={`text-xs ${getStatusTextColor(systemStatus.github.dispatch.status)}`}>
+                        {systemStatus.github.dispatch.connected
+                          ? `${systemStatus.github.dispatch.rate_limit_remaining} remaining`
+                          : 'Not configured'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {systemStatus.github.dispatch?.connected && systemStatus.github.dispatch.reset_in && (
+                  <div className="text-right text-xs text-zinc-500">
+                    Resets {systemStatus.github.dispatch.reset_in}
+                  </div>
+                )}
+                {!systemStatus.github.runners && !systemStatus.github.dispatch && (
+                  <span className="text-xs text-zinc-500">No clients configured</span>
+                )}
               </div>
+            ) : (
+              <span className="text-xs text-zinc-500">—</span>
             )}
           </div>
 
