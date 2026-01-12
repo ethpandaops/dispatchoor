@@ -42,6 +42,11 @@ type server struct {
 	hub            *Hub
 	srv            *http.Server
 	router         chi.Router
+
+	// Rate limiters for different endpoint tiers.
+	authRateLimiter          *IPRateLimiter
+	publicRateLimiter        *IPRateLimiter
+	authenticatedRateLimiter *IPRateLimiter
 }
 
 // Ensure server implements Server.
@@ -61,6 +66,19 @@ func NewServer(log logrus.FieldLogger, cfg *config.Config, st store.Store, q que
 		dispatchClient: dispatchClient,
 		metrics:        m,
 		hub:            hub,
+	}
+
+	// Initialize rate limiters if enabled.
+	if cfg.Server.RateLimit.Enabled {
+		s.authRateLimiter = NewIPRateLimiter(cfg.Server.RateLimit.Auth.RequestsPerMinute)
+		s.publicRateLimiter = NewIPRateLimiter(cfg.Server.RateLimit.Public.RequestsPerMinute)
+		s.authenticatedRateLimiter = NewIPRateLimiter(cfg.Server.RateLimit.Authenticated.RequestsPerMinute)
+
+		log.WithFields(logrus.Fields{
+			"auth_rpm":          cfg.Server.RateLimit.Auth.RequestsPerMinute,
+			"public_rpm":        cfg.Server.RateLimit.Public.RequestsPerMinute,
+			"authenticated_rpm": cfg.Server.RateLimit.Authenticated.RequestsPerMinute,
+		}).Info("Rate limiting enabled")
 	}
 
 	// Set up callback to broadcast job state changes via WebSocket.
@@ -150,29 +168,54 @@ func (s *server) setupRouter() {
 		r.Use(corsMiddleware(s.cfg.Server.CORSOrigins))
 	}
 
-	// Health check (public).
-	r.Get("/health", s.handleHealth)
+	// Public endpoints with public rate limit.
+	r.Group(func(r chi.Router) {
+		if s.publicRateLimiter != nil {
+			r.Use(s.publicRateLimiter.Middleware)
+		}
 
-	// Metrics endpoint (public).
-	r.Handle("/metrics", promhttp.Handler())
+		// Health check (public).
+		r.Get("/health", s.handleHealth)
+
+		// Metrics endpoint (public).
+		r.Handle("/metrics", promhttp.Handler())
+	})
 
 	// API v1.
 	r.Route("/api/v1", func(r chi.Router) {
-		// OpenAPI spec (public).
-		r.Get("/openapi.json", s.handleOpenAPISpec)
+		// OpenAPI spec (public rate limit).
+		r.Group(func(r chi.Router) {
+			if s.publicRateLimiter != nil {
+				r.Use(s.publicRateLimiter.Middleware)
+			}
+			r.Get("/openapi.json", s.handleOpenAPISpec)
+		})
 
-		// Auth routes (public).
-		r.Post("/auth/login", s.handleLogin)
-		r.Get("/auth/github", s.handleGitHubAuth)
-		r.Get("/auth/github/callback", s.handleGitHubCallback)
-		r.Post("/auth/exchange", s.handleExchangeCode)
+		// Auth routes with strict rate limit.
+		r.Group(func(r chi.Router) {
+			if s.authRateLimiter != nil {
+				r.Use(s.authRateLimiter.Middleware)
+			}
+			r.Post("/auth/login", s.handleLogin)
+			r.Get("/auth/github", s.handleGitHubAuth)
+			r.Get("/auth/github/callback", s.handleGitHubCallback)
+			r.Post("/auth/exchange", s.handleExchangeCode)
+		})
 
-		// WebSocket (authentication handled in handler).
-		r.Get("/ws", s.handleWebSocket)
+		// WebSocket (authentication handled in handler, uses authenticated rate limit).
+		r.Group(func(r chi.Router) {
+			if s.authenticatedRateLimiter != nil {
+				r.Use(s.authenticatedRateLimiter.Middleware)
+			}
+			r.Get("/ws", s.handleWebSocket)
+		})
 
-		// Protected routes.
+		// Protected routes with authenticated rate limit.
 		r.Group(func(r chi.Router) {
 			r.Use(auth.AuthMiddleware(s.auth))
+			if s.authenticatedRateLimiter != nil {
+				r.Use(s.authenticatedRateLimiter.Middleware)
+			}
 
 			// Auth (authenticated).
 			r.Post("/auth/logout", s.handleLogout)
@@ -303,6 +346,11 @@ type HealthResponse struct {
 	Status string `json:"status" example:"ok"`
 }
 
+// RateLimitErrorResponse is returned when rate limit is exceeded.
+type RateLimitErrorResponse struct {
+	Error string `json:"error" example:"rate limit exceeded"`
+}
+
 // handleOpenAPISpec godoc
 //
 //	@Summary		OpenAPI specification
@@ -325,6 +373,7 @@ func (s *server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
 //	@Tags			system
 //	@Produce		json
 //	@Success		200	{object}	HealthResponse
+//	@Failure		429	{object}	RateLimitErrorResponse	"Rate limit exceeded"
 //	@Router			/health [get]
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	s.writeJSON(w, http.StatusOK, HealthResponse{Status: "ok"})
@@ -339,6 +388,7 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 //	@Produce		json
 //	@Success		200	{object}	SystemStatusResponse
 //	@Failure		401	{object}	ErrorResponse
+//	@Failure		429	{object}	RateLimitErrorResponse	"Rate limit exceeded"
 //	@Router			/status [get]
 func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1685,6 +1735,7 @@ type LoginResponse struct {
 //	@Success		200		{object}	LoginResponse
 //	@Failure		400		{object}	ErrorResponse
 //	@Failure		401		{object}	ErrorResponse
+//	@Failure		429		{object}	RateLimitErrorResponse	"Rate limit exceeded"
 //	@Router			/auth/login [post]
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
@@ -1798,6 +1849,7 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 //	@Param			state	query	string	false	"OAuth state for CSRF protection"
 //	@Success		307		"Redirect to GitHub"
 //	@Failure		404		{object}	ErrorResponse	"GitHub auth not enabled"
+//	@Failure		429		{object}	RateLimitErrorResponse	"Rate limit exceeded"
 //	@Router			/auth/github [get]
 func (s *server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Auth.GitHub.Enabled {
@@ -1833,6 +1885,7 @@ func (s *server) handleGitHubAuth(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400			{object}	ErrorResponse
 //	@Failure		401			{object}	ErrorResponse
 //	@Failure		404			{object}	ErrorResponse	"GitHub auth not enabled"
+//	@Failure		429			{object}	RateLimitErrorResponse	"Rate limit exceeded"
 //	@Router			/auth/github/callback [get]
 func (s *server) handleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	if !s.cfg.Auth.GitHub.Enabled {
@@ -1926,6 +1979,19 @@ type exchangeCodeRequest struct {
 	Code string `json:"code"`
 }
 
+// handleExchangeCode godoc
+//
+//	@Summary		Exchange auth code for token
+//	@Description	Exchanges a one-time authorization code for a session token
+//	@Tags			auth
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		exchangeCodeRequest	true	"Auth code"
+//	@Success		200		{object}	LoginResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		429		{object}	RateLimitErrorResponse	"Rate limit exceeded"
+//	@Router			/auth/exchange [post]
 func (s *server) handleExchangeCode(w http.ResponseWriter, r *http.Request) {
 	var req exchangeCodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

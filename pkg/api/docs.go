@@ -5,6 +5,14 @@
 //	@description				GitHub Actions workflow dispatch queue management API.
 //	@description				Dispatchoor helps you manage and schedule GitHub Actions workflow dispatches
 //	@description				across multiple runner pools with fine-grained control.
+//	@description
+//	@description				## Rate Limiting
+//	@description				When enabled, the API enforces per-IP rate limits on three tiers:
+//	@description				- **Auth endpoints** (`/auth/*`): 10 requests/minute (protects against brute force)
+//	@description				- **Public endpoints** (`/health`, `/metrics`): 60 requests/minute
+//	@description				- **Authenticated endpoints**: 120 requests/minute
+//	@description
+//	@description				When rate limited, the API returns HTTP 429 with a `Retry-After` header.
 //
 //	@contact.name				ethPandaOps
 //	@contact.url				https://github.com/ethpandaops/dispatchoor

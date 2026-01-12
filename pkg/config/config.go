@@ -26,8 +26,22 @@ type Config struct {
 
 // ServerConfig contains HTTP server settings.
 type ServerConfig struct {
-	Listen      string   `yaml:"listen"`
-	CORSOrigins []string `yaml:"cors_origins"`
+	Listen      string          `yaml:"listen"`
+	CORSOrigins []string        `yaml:"cors_origins"`
+	RateLimit   RateLimitConfig `yaml:"rate_limit"`
+}
+
+// RateLimitConfig contains rate limiting settings for different endpoint tiers.
+type RateLimitConfig struct {
+	Enabled       bool                `yaml:"enabled"`
+	Auth          RateLimitTierConfig `yaml:"auth"`
+	Public        RateLimitTierConfig `yaml:"public"`
+	Authenticated RateLimitTierConfig `yaml:"authenticated"`
+}
+
+// RateLimitTierConfig contains rate limit settings for a specific tier.
+type RateLimitTierConfig struct {
+	RequestsPerMinute int `yaml:"requests_per_minute"`
 }
 
 // DatabaseConfig contains database connection settings.
@@ -357,6 +371,19 @@ func applyDefaults(cfg *Config) {
 
 	if cfg.History.CleanupInterval == 0 {
 		cfg.History.CleanupInterval = time.Hour
+	}
+
+	// Set default rate limits per endpoint tier.
+	if cfg.Server.RateLimit.Auth.RequestsPerMinute == 0 {
+		cfg.Server.RateLimit.Auth.RequestsPerMinute = 10
+	}
+
+	if cfg.Server.RateLimit.Public.RequestsPerMinute == 0 {
+		cfg.Server.RateLimit.Public.RequestsPerMinute = 60
+	}
+
+	if cfg.Server.RateLimit.Authenticated.RequestsPerMinute == 0 {
+		cfg.Server.RateLimit.Authenticated.RequestsPerMinute = 120
 	}
 
 	// Set default refs for workflow dispatch templates.
