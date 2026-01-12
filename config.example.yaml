@@ -22,6 +22,8 @@ database:
 
 github:
   token: ${GITHUB_TOKEN}
+  # Optional: separate token for listing runners (falls back to token if not set)
+  # runners_token: ${GITHUB_RUNNERS_TOKEN}
   poll_interval: 60s
   rate_limit_buffer: 100
 

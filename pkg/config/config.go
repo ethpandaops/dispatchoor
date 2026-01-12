@@ -55,6 +55,7 @@ type PostgresConfig struct {
 // GitHubConfig contains GitHub API settings.
 type GitHubConfig struct {
 	Token           string        `yaml:"token"`
+	RunnersToken    string        `yaml:"runners_token"`
 	PollInterval    time.Duration `yaml:"poll_interval"`
 	RateLimitBuffer int           `yaml:"rate_limit_buffer"`
 }
@@ -473,6 +474,21 @@ func (c *Config) GetDSN() string {
 // HasGitHubToken returns true if a GitHub token is configured.
 func (c *Config) HasGitHubToken() bool {
 	return c.GitHub.Token != ""
+}
+
+// GetRunnersToken returns the token to use for listing runners.
+// Returns RunnersToken if configured, otherwise falls back to Token.
+func (c *Config) GetRunnersToken() string {
+	if c.GitHub.RunnersToken != "" {
+		return c.GitHub.RunnersToken
+	}
+
+	return c.GitHub.Token
+}
+
+// HasRunnersToken returns true if a token for listing runners is available.
+func (c *Config) HasRunnersToken() bool {
+	return c.GetRunnersToken() != ""
 }
 
 // String returns a sanitized string representation of the config (no secrets).

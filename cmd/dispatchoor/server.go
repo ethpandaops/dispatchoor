@@ -80,27 +80,33 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	m := metrics.New()
 	m.SetBuildInfo(Version, GitCommit, BuildDate)
 
-	// Create GitHub client (may operate in disconnected mode if no token or invalid token).
-	var ghClient github.Client
+	// Create GitHub clients.
+	// - runnersClient: used for polling runner status (uses runners_token if set, else token)
+	// - dispatchClient: used for dispatching workflows (uses token)
+	var runnersClient github.Client
+
+	var dispatchClient github.Client
 
 	var poller github.Poller
 
-	if cfg.HasGitHubToken() {
-		ghClient = github.NewClient(log, cfg.GitHub.Token)
+	// Create runners client for polling (uses runners_token if configured, else falls back to token).
+	if cfg.HasRunnersToken() {
+		runnersToken := cfg.GetRunnersToken()
+		runnersClient = github.NewClient(log.WithField("client", "runners"), runnersToken)
 
-		if err := ghClient.Start(ctx); err != nil {
+		if err := runnersClient.Start(ctx); err != nil {
 			return err
 		}
 
 		defer func() {
-			if err := ghClient.Stop(); err != nil {
-				log.WithError(err).Warn("Failed to stop GitHub client")
+			if err := runnersClient.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop runners GitHub client")
 			}
 		}()
 
-		// Only start poller if GitHub client is connected.
-		if ghClient.IsConnected() {
-			poller = github.NewPoller(log, cfg, ghClient, st, m)
+		// Only start poller if runners client is connected.
+		if runnersClient.IsConnected() {
+			poller = github.NewPoller(log, cfg, runnersClient, st, m)
 
 			if err := poller.Start(ctx); err != nil {
 				return err
@@ -112,10 +118,31 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 				}
 			}()
 		} else {
-			log.Warn("GitHub client not connected - runner polling disabled")
+			log.Warn("Runners GitHub client not connected - runner polling disabled")
 		}
 	} else {
-		log.Warn("No GitHub token configured - GitHub integration disabled")
+		log.Warn("No GitHub token configured for runners - runner polling disabled")
+	}
+
+	// Create dispatch client for workflow dispatching (uses main token).
+	if cfg.HasGitHubToken() {
+		dispatchClient = github.NewClient(log.WithField("client", "dispatch"), cfg.GitHub.Token)
+
+		if err := dispatchClient.Start(ctx); err != nil {
+			return err
+		}
+
+		defer func() {
+			if err := dispatchClient.Stop(); err != nil {
+				log.WithError(err).Warn("Failed to stop dispatch GitHub client")
+			}
+		}()
+
+		if !dispatchClient.IsConnected() {
+			log.Warn("Dispatch GitHub client not connected - workflow dispatch disabled")
+		}
+	} else {
+		log.Warn("No GitHub token configured for dispatch - workflow dispatch disabled")
 	}
 
 	// Create queue service.
@@ -127,11 +154,11 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 
 	defer queueSvc.Stop()
 
-	// Create and start dispatcher (only if GitHub client is connected).
+	// Create and start dispatcher (only if dispatch client is connected).
 	var disp dispatcher.Dispatcher
 
-	if ghClient != nil && ghClient.IsConnected() {
-		disp = dispatcher.NewDispatcher(log, cfg, st, queueSvc, ghClient)
+	if dispatchClient != nil && dispatchClient.IsConnected() {
+		disp = dispatcher.NewDispatcher(log, cfg, st, queueSvc, dispatchClient)
 
 		if err := disp.Start(ctx); err != nil {
 			return err
@@ -142,8 +169,6 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 				log.WithError(err).Warn("Failed to stop dispatcher")
 			}
 		}()
-	} else {
-		log.Warn("Dispatcher disabled - GitHub client not connected")
 	}
 
 	// Create and start auth service.
@@ -156,7 +181,7 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	defer authSvc.Stop()
 
 	// Create and start API server.
-	srv := api.NewServer(log, cfg, st, queueSvc, authSvc, ghClient, m)
+	srv := api.NewServer(log, cfg, st, queueSvc, authSvc, dispatchClient, m)
 
 	// Set up runner change callbacks to broadcast via WebSocket.
 	if poller != nil {
