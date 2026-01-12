@@ -23,6 +23,7 @@ RUN apk add --no-cache gettext
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy nginx config template
+# Uses dynamic resolver and variable-based proxy_pass for runtime DNS resolution
 COPY <<'EOF' /etc/nginx/templates/default.conf.template
 server {
     listen 80;
@@ -30,13 +31,19 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Dynamic DNS resolver (extracted from /etc/resolv.conf at startup)
+    resolver ${RESOLVER} valid=10s ipv6=off;
+
+    # Set API URL as variable for dynamic resolution at request time
+    set $api_upstream "${API_URL}";
+
     # Gzip compression
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml text/javascript;
 
-    # API proxy
+    # API proxy - using variable triggers runtime DNS resolution
     location /api/ {
-        proxy_pass ${API_URL};
+        proxy_pass $api_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -48,12 +55,12 @@ server {
     }
 
     location /health {
-        proxy_pass ${API_URL};
+        proxy_pass $api_upstream;
         proxy_set_header Host $host;
     }
 
     location /metrics {
-        proxy_pass ${API_URL};
+        proxy_pass $api_upstream;
         proxy_set_header Host $host;
     }
 
@@ -74,25 +81,45 @@ EOF
 COPY <<'EOF' /docker-entrypoint.d/40-envsubst-on-templates.sh
 #!/bin/sh
 set -e
-envsubst '${API_URL}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
+# Extract resolver from /etc/resolv.conf (first nameserver)
+# This works across Docker (127.0.0.11), Kubernetes (cluster DNS), and bare metal
+RESOLVER=$(grep -m1 '^nameserver' /etc/resolv.conf | awk '{print $2}')
+if [ -z "$RESOLVER" ]; then
+    RESOLVER="127.0.0.11"  # Fallback for Docker
+fi
+export RESOLVER
+echo "Using DNS resolver: $RESOLVER"
+envsubst '${API_URL} ${RESOLVER}' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf
 EOF
 
 COPY <<'EOF' /docker-entrypoint.d/30-generate-ui-config.sh
 #!/bin/sh
 set -e
-# Generate UI config.json - uses /api/v1 since nginx proxies to the backend
-cat > /usr/share/nginx/html/config.json << 'CONFIG'
+
+if [ "${ENABLE_PROXY:-false}" = "true" ]; then
+    # Reverse proxy mode: use relative path (nginx proxies to backend)
+    API_BASE="/api/v1"
+else
+    # Direct mode: browser connects directly to API
+    # Strip trailing slash if present, then append /api/v1
+    API_BASE="${API_URL%/}/api/v1"
+fi
+
+cat > /usr/share/nginx/html/config.json << CONFIGEOF
 {
-  "apiUrl": "/api/v1"
+  "apiUrl": "${API_BASE}"
 }
-CONFIG
-echo "Generated /usr/share/nginx/html/config.json"
+CONFIGEOF
+chmod 644 /usr/share/nginx/html/config.json
+echo "Generated config.json with apiUrl: ${API_BASE}"
 EOF
 
 RUN chmod +x /docker-entrypoint.d/40-envsubst-on-templates.sh /docker-entrypoint.d/30-generate-ui-config.sh
 
-# Default API URL
-ENV API_URL=http://api:9090
+# Default: direct API access (browser connects directly to API)
+# Set ENABLE_PROXY=true for reverse proxy mode (nginx proxies /api/* to backend)
+ENV API_URL=http://localhost:9090
+ENV ENABLE_PROXY=false
 
 EXPOSE 80
 
