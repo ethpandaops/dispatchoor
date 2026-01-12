@@ -322,8 +322,24 @@ definitions:
       updated_at:
         type: string
     type: object
+  pkg_api.HealthAuthConfig:
+    properties:
+      basic:
+        example: true
+        type: boolean
+      github:
+        example: false
+        type: boolean
+    type: object
+  pkg_api.HealthConfig:
+    properties:
+      auth:
+        $ref: '#/definitions/pkg_api.HealthAuthConfig'
+    type: object
   pkg_api.HealthResponse:
     properties:
+      config:
+        $ref: '#/definitions/pkg_api.HealthConfig'
       status:
         example: ok
         type: string

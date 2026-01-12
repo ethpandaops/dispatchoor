@@ -343,7 +343,19 @@ func (s *server) writeError(w http.ResponseWriter, status int, message string) {
 
 // HealthResponse is the response for the health check endpoint.
 type HealthResponse struct {
-	Status string `json:"status" example:"ok"`
+	Status string       `json:"status" example:"ok"`
+	Config HealthConfig `json:"config"`
+}
+
+// HealthConfig contains public configuration information.
+type HealthConfig struct {
+	Auth HealthAuthConfig `json:"auth"`
+}
+
+// HealthAuthConfig indicates which authentication methods are enabled.
+type HealthAuthConfig struct {
+	Basic  bool `json:"basic" example:"true"`
+	GitHub bool `json:"github" example:"false"`
 }
 
 // RateLimitErrorResponse is returned when rate limit is exceeded.
@@ -376,7 +388,15 @@ func (s *server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
 //	@Failure		429	{object}	RateLimitErrorResponse	"Rate limit exceeded"
 //	@Router			/health [get]
 func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	s.writeJSON(w, http.StatusOK, HealthResponse{Status: "ok"})
+	s.writeJSON(w, http.StatusOK, HealthResponse{
+		Status: "ok",
+		Config: HealthConfig{
+			Auth: HealthAuthConfig{
+				Basic:  s.cfg.Auth.Basic.Enabled,
+				GitHub: s.cfg.Auth.GitHub.Enabled,
+			},
+		},
+	})
 }
 
 // handleStatus godoc
