@@ -33,6 +33,7 @@ services:
       - "3000:80"
     environment:
       - API_URL=http://api:9090
+      - ENABLE_PROXY=true
     depends_on:
       api:
         condition: service_healthy
