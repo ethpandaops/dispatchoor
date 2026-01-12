@@ -261,8 +261,12 @@ definitions:
         example: Something went wrong
         type: string
     type: object
-  pkg_api.GitHubStatus:
+  pkg_api.GitHubClientStatus:
     properties:
+      connected:
+        type: boolean
+      error:
+        type: string
       rate_limit_remaining:
         type: integer
       rate_limit_reset:
@@ -271,6 +275,13 @@ definitions:
         type: string
       status:
         $ref: '#/definitions/pkg_api.ComponentStatus'
+    type: object
+  pkg_api.GitHubClientsStatus:
+    properties:
+      dispatch:
+        $ref: '#/definitions/pkg_api.GitHubClientStatus'
+      runners:
+        $ref: '#/definitions/pkg_api.GitHubClientStatus'
     type: object
   pkg_api.GroupWithStats:
     properties:
@@ -409,6 +420,12 @@ definitions:
       triggered_jobs:
         type: integer
     type: object
+  pkg_api.RateLimitErrorResponse:
+    properties:
+      error:
+        example: rate limit exceeded
+        type: string
+    type: object
   pkg_api.ReorderQueueRequest:
     properties:
       job_ids:
@@ -425,7 +442,7 @@ definitions:
       database:
         $ref: '#/definitions/pkg_api.DatabaseStatus'
       github:
-        $ref: '#/definitions/pkg_api.GitHubStatus'
+        $ref: '#/definitions/pkg_api.GitHubClientsStatus'
       queue:
         $ref: '#/definitions/pkg_api.QueueStats'
       status:
@@ -479,6 +496,11 @@ definitions:
       version:
         type: string
     type: object
+  pkg_api.exchangeCodeRequest:
+    properties:
+      code:
+        type: string
+    type: object
 host: localhost:9090
 info:
   contact:
@@ -488,12 +510,54 @@ info:
     GitHub Actions workflow dispatch queue management API.
     Dispatchoor helps you manage and schedule GitHub Actions workflow dispatches
     across multiple runner pools with fine-grained control.
+
+    ## Rate Limiting
+    When enabled, the API enforces per-IP rate limits on three tiers:
+    - **Auth endpoints** (`/auth/*`): 10 requests/minute (protects against brute force)
+    - **Public endpoints** (`/health`, `/metrics`): 60 requests/minute
+    - **Authenticated endpoints**: 120 requests/minute
+
+    When rate limited, the API returns HTTP 429 with a `Retry-After` header.
   license:
     name: MIT
     url: https://github.com/ethpandaops/dispatchoor/blob/main/LICENSE
   title: Dispatchoor API
   version: "1.0"
 paths:
+  /auth/exchange:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a one-time authorization code for a session token
+      parameters:
+      - description: Auth code
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_api.exchangeCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_api.LoginResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "429":
+          description: Rate limit exceeded
+          schema:
+            $ref: '#/definitions/pkg_api.RateLimitErrorResponse'
+      summary: Exchange auth code for token
+      tags:
+      - auth
   /auth/github:
     get:
       description: Initiates GitHub OAuth flow by redirecting to GitHub authorization
@@ -510,6 +574,10 @@ paths:
           description: GitHub auth not enabled
           schema:
             $ref: '#/definitions/pkg_api.ErrorResponse'
+        "429":
+          description: Rate limit exceeded
+          schema:
+            $ref: '#/definitions/pkg_api.RateLimitErrorResponse'
       summary: GitHub OAuth initiation
       tags:
       - auth
@@ -551,6 +619,10 @@ paths:
           description: GitHub auth not enabled
           schema:
             $ref: '#/definitions/pkg_api.ErrorResponse'
+        "429":
+          description: Rate limit exceeded
+          schema:
+            $ref: '#/definitions/pkg_api.RateLimitErrorResponse'
       summary: GitHub OAuth callback
       tags:
       - auth
@@ -581,6 +653,10 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/pkg_api.ErrorResponse'
+        "429":
+          description: Rate limit exceeded
+          schema:
+            $ref: '#/definitions/pkg_api.RateLimitErrorResponse'
       summary: Login with username and password
       tags:
       - auth
@@ -1019,6 +1095,10 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/pkg_api.HealthResponse'
+        "429":
+          description: Rate limit exceeded
+          schema:
+            $ref: '#/definitions/pkg_api.RateLimitErrorResponse'
       summary: Health check
       tags:
       - system
@@ -1404,6 +1484,10 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/pkg_api.ErrorResponse'
+        "429":
+          description: Rate limit exceeded
+          schema:
+            $ref: '#/definitions/pkg_api.RateLimitErrorResponse'
       security:
       - BearerAuth: []
       summary: System status

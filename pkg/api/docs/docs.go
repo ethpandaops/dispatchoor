@@ -22,6 +22,58 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/auth/exchange": {
+            "post": {
+                "description": "Exchanges a one-time authorization code for a session token",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Exchange auth code for token",
+                "parameters": [
+                    {
+                        "description": "Auth code",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.exchangeCodeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.LoginResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.RateLimitErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/github": {
             "get": {
                 "description": "Initiates GitHub OAuth flow by redirecting to GitHub authorization page",
@@ -45,6 +97,12 @@ const docTemplate = `{
                         "description": "GitHub auth not enabled",
                         "schema": {
                             "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.RateLimitErrorResponse"
                         }
                     }
                 }
@@ -108,6 +166,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/pkg_api.ErrorResponse"
                         }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.RateLimitErrorResponse"
+                        }
                     }
                 }
             }
@@ -153,6 +217,12 @@ const docTemplate = `{
                         "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.RateLimitErrorResponse"
                         }
                     }
                 }
@@ -838,6 +908,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/pkg_api.HealthResponse"
                         }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.RateLimitErrorResponse"
+                        }
                     }
                 }
             }
@@ -1438,6 +1514,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/pkg_api.ErrorResponse"
                         }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.RateLimitErrorResponse"
+                        }
                     }
                 }
             }
@@ -1903,9 +1985,15 @@ const docTemplate = `{
                 }
             }
         },
-        "pkg_api.GitHubStatus": {
+        "pkg_api.GitHubClientStatus": {
             "type": "object",
             "properties": {
+                "connected": {
+                    "type": "boolean"
+                },
+                "error": {
+                    "type": "string"
+                },
                 "rate_limit_remaining": {
                     "type": "integer"
                 },
@@ -1917,6 +2005,17 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/pkg_api.ComponentStatus"
+                }
+            }
+        },
+        "pkg_api.GitHubClientsStatus": {
+            "type": "object",
+            "properties": {
+                "dispatch": {
+                    "$ref": "#/definitions/pkg_api.GitHubClientStatus"
+                },
+                "runners": {
+                    "$ref": "#/definitions/pkg_api.GitHubClientStatus"
                 }
             }
         },
@@ -2119,6 +2218,15 @@ const docTemplate = `{
                 }
             }
         },
+        "pkg_api.RateLimitErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "rate limit exceeded"
+                }
+            }
+        },
         "pkg_api.ReorderQueueRequest": {
             "type": "object",
             "properties": {
@@ -2142,7 +2250,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/pkg_api.DatabaseStatus"
                 },
                 "github": {
-                    "$ref": "#/definitions/pkg_api.GitHubStatus"
+                    "$ref": "#/definitions/pkg_api.GitHubClientsStatus"
                 },
                 "queue": {
                     "$ref": "#/definitions/pkg_api.QueueStats"
@@ -2221,6 +2329,14 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "pkg_api.exchangeCodeRequest": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                }
+            }
         }
     },
     "securityDefinitions": {
@@ -2240,7 +2356,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/api/v1",
 	Schemes:          []string{},
 	Title:            "Dispatchoor API",
-	Description:      "GitHub Actions workflow dispatch queue management API.\nDispatchoor helps you manage and schedule GitHub Actions workflow dispatches\nacross multiple runner pools with fine-grained control.",
+	Description:      "GitHub Actions workflow dispatch queue management API.\nDispatchoor helps you manage and schedule GitHub Actions workflow dispatches\nacross multiple runner pools with fine-grained control.\n\n## Rate Limiting\nWhen enabled, the API enforces per-IP rate limits on three tiers:\n- **Auth endpoints** (`/auth/*`): 10 requests/minute (protects against brute force)\n- **Public endpoints** (`/health`, `/metrics`): 60 requests/minute\n- **Authenticated endpoints**: 120 requests/minute\n\nWhen rate limited, the API returns HTTP 429 with a `Retry-After` header.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

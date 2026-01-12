@@ -5,6 +5,15 @@ server:
   listen: ":9090"
   cors_origins:
     - "*"
+  # Rate limiting per IP address (disabled by default)
+  rate_limit:
+    enabled: false
+    auth:
+      requests_per_minute: 10     # Strict for login/OAuth endpoints
+    public:
+      requests_per_minute: 60     # Moderate for health/metrics
+    authenticated:
+      requests_per_minute: 120    # Relaxed for authenticated users
 
 database:
   driver: sqlite
