@@ -10,6 +10,7 @@ import type {
   HistoryResponse,
   HistoryStatsResponse,
   HistoryStatsTimeRange,
+  HealthResponse,
 } from '../types';
 import { getConfig } from '../config';
 
@@ -291,8 +292,14 @@ class ApiClient {
     return this.request<SystemStatus>('/status');
   }
 
-  async getHealth(): Promise<{ status: string }> {
-    const response = await fetch('/health');
+  async getHealth(): Promise<HealthResponse> {
+    // Health endpoint is at root level, not under /api/v1
+    const apiBase = this.getApiBase();
+    const baseUrl = apiBase.replace(/\/api\/v1\/?$/, '');
+    const response = await fetch(`${baseUrl}/health`);
+    if (!response.ok) {
+      throw new Error(`Health check failed: ${response.status}`);
+    }
     return response.json();
   }
 

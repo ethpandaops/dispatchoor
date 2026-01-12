@@ -231,3 +231,18 @@ export interface WSSystemStatus {
   connected_clients: number;
   timestamp: string;
 }
+
+// Health endpoint types
+export interface HealthAuthConfig {
+  basic: boolean;
+  github: boolean;
+}
+
+export interface HealthConfig {
+  auth: HealthAuthConfig;
+}
+
+export interface HealthResponse {
+  status: string;
+  config: HealthConfig;
+}

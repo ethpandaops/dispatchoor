@@ -2069,9 +2069,33 @@
                 }
             }
         },
+        "pkg_api.HealthAuthConfig": {
+            "type": "object",
+            "properties": {
+                "basic": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "github": {
+                    "type": "boolean",
+                    "example": false
+                }
+            }
+        },
+        "pkg_api.HealthConfig": {
+            "type": "object",
+            "properties": {
+                "auth": {
+                    "$ref": "#/definitions/pkg_api.HealthAuthConfig"
+                }
+            }
+        },
         "pkg_api.HealthResponse": {
             "type": "object",
             "properties": {
+                "config": {
+                    "$ref": "#/definitions/pkg_api.HealthConfig"
+                },
                 "status": {
                     "type": "string",
                     "example": "ok"
