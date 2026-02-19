@@ -2099,6 +2099,7 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 			log.WithField("group", groupCfg.ID).Info("Updating group")
 
 			group.CreatedAt = existing.CreatedAt
+			group.Paused = existing.Paused
 
 			if err := st.UpdateGroup(ctx, group); err != nil {
 				return fmt.Errorf("updating group %s: %w", groupCfg.ID, err)
