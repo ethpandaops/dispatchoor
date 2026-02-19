@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { ApiReferenceReact } from '@scalar/api-reference-react';
+import type { AnyApiReferenceConfiguration } from '@scalar/api-reference-react';
 import '@scalar/api-reference-react/style.css';
 import { getConfig } from '../config';
 import { useUIStore } from '../stores/uiStore';
-import type { ReferenceProps } from '@scalar/api-reference';
 
 export function ApiDocsPage() {
   const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
@@ -25,8 +25,8 @@ export function ApiDocsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run only on mount/unmount
   }, []);
 
-  const config: ReferenceProps['configuration'] = {
-    spec: { url: specUrl },
+  const config: AnyApiReferenceConfiguration = {
+    url: specUrl,
     theme: 'purple',
     darkMode: true,
     layout: 'modern',
