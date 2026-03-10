@@ -416,6 +416,14 @@ export function GroupPage() {
     },
   });
 
+  const reloadTemplatesMutation = useMutation({
+    mutationFn: () => api.reloadTemplates(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['templates', id] });
+      queryClient.invalidateQueries({ queryKey: ['groups'] });
+    },
+  });
+
   const getTemplateForJob = useCallback((job: Job) => templates.find((t) => t.id === job.template_id), [templates]);
 
   // Extract unique labels from all templates
@@ -1366,10 +1374,30 @@ export function GroupPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Description */}
-              <p className="text-sm text-zinc-500">
-                Predefined job templates provided via configuration. Select templates to add them to the queue.
-              </p>
+              {/* Description and reload button */}
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-zinc-500">
+                  Predefined job templates provided via configuration. Select templates to add them to the queue.
+                </p>
+                {isAdmin && (
+                  <button
+                    onClick={() => reloadTemplatesMutation.mutate()}
+                    disabled={reloadTemplatesMutation.isPending}
+                    className="flex shrink-0 items-center gap-1.5 rounded-sm bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 disabled:opacity-50"
+                    title="Reload templates from config files and URLs"
+                  >
+                    <svg
+                      className={`size-3.5 ${reloadTemplatesMutation.isPending ? 'animate-spin' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    {reloadTemplatesMutation.isPending ? 'Reloading...' : 'Reload Templates'}
+                  </button>
+                )}
+              </div>
 
               {/* Label filters */}
               {(availableLabels.length > 0 || unlabeledCount > 0) && (
