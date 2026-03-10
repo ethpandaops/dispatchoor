@@ -232,6 +232,17 @@ export interface WSSystemStatus {
   timestamp: string;
 }
 
+// Template reload response
+export interface ReloadTemplatesGroupStats {
+  group_id: string;
+  templates: number;
+}
+
+export interface ReloadTemplatesResponse {
+  message: string;
+  groups: ReloadTemplatesGroupStats[];
+}
+
 // Health endpoint types
 export interface HealthAuthConfig {
   basic: boolean;

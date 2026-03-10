@@ -1524,6 +1524,49 @@ const docTemplate = `{
                 }
             }
         },
+        "/templates/reload": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Re-reads the config file to reload templates from files and URLs, then syncs to the database (requires admin)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "templates"
+                ],
+                "summary": "Reload templates",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ReloadTemplatesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/templates/{id}": {
             "get": {
                 "security": [
@@ -2248,6 +2291,34 @@ const docTemplate = `{
                 "error": {
                     "type": "string",
                     "example": "rate limit exceeded"
+                }
+            }
+        },
+        "pkg_api.ReloadTemplatesGroupStats": {
+            "type": "object",
+            "properties": {
+                "group_id": {
+                    "type": "string",
+                    "example": "my-group"
+                },
+                "templates": {
+                    "type": "integer",
+                    "example": 5
+                }
+            }
+        },
+        "pkg_api.ReloadTemplatesResponse": {
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pkg_api.ReloadTemplatesGroupStats"
+                    }
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Templates reloaded successfully"
                 }
             }
         },

@@ -11,6 +11,7 @@ import type {
   HistoryStatsResponse,
   HistoryStatsTimeRange,
   HealthResponse,
+  ReloadTemplatesResponse,
 } from '../types';
 import { getConfig } from '../config';
 
@@ -285,6 +286,11 @@ class ApiClient {
 
   async refreshRunners(): Promise<void> {
     await this.request<void>('/runners/refresh', { method: 'POST' });
+  }
+
+  // Templates
+  async reloadTemplates(): Promise<ReloadTemplatesResponse> {
+    return this.request<ReloadTemplatesResponse>('/templates/reload', { method: 'POST' });
   }
 
   // System

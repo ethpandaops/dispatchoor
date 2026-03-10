@@ -442,6 +442,25 @@ definitions:
         example: rate limit exceeded
         type: string
     type: object
+  pkg_api.ReloadTemplatesGroupStats:
+    properties:
+      group_id:
+        example: my-group
+        type: string
+      templates:
+        example: 5
+        type: integer
+    type: object
+  pkg_api.ReloadTemplatesResponse:
+    properties:
+      groups:
+        items:
+          $ref: '#/definitions/pkg_api.ReloadTemplatesGroupStats'
+        type: array
+      message:
+        example: Templates reloaded successfully
+        type: string
+    type: object
   pkg_api.ReorderQueueRequest:
     properties:
       job_ids:
@@ -1540,6 +1559,34 @@ paths:
       security:
       - BearerAuth: []
       summary: Get job template
+      tags:
+      - templates
+  /templates/reload:
+    post:
+      description: Re-reads the config file to reload templates from files and URLs,
+        then syncs to the database (requires admin)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pkg_api.ReloadTemplatesResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reload templates
       tags:
       - templates
   /ws:

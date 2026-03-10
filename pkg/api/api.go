@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethpandaops/dispatchoor/pkg/api/docs"
@@ -18,6 +19,7 @@ import (
 	"github.com/ethpandaops/dispatchoor/pkg/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
@@ -33,6 +35,8 @@ type Server interface {
 type server struct {
 	log            logrus.FieldLogger
 	cfg            *config.Config
+	cfgMu          sync.RWMutex
+	configPath     string
 	store          store.Store
 	queue          queue.Service
 	auth           auth.Service
@@ -53,12 +57,13 @@ type server struct {
 var _ Server = (*server)(nil)
 
 // NewServer creates a new API server.
-func NewServer(log logrus.FieldLogger, cfg *config.Config, st store.Store, q queue.Service, authSvc auth.Service, runnersClient, dispatchClient github.Client, m *metrics.Metrics) Server {
+func NewServer(log logrus.FieldLogger, cfg *config.Config, configPath string, st store.Store, q queue.Service, authSvc auth.Service, runnersClient, dispatchClient github.Client, m *metrics.Metrics) Server {
 	hub := NewHub(log)
 
 	s := &server{
 		log:            log.WithField("component", "api"),
 		cfg:            cfg,
+		configPath:     configPath,
 		store:          st,
 		queue:          q,
 		auth:           authSvc,
@@ -129,8 +134,12 @@ func (s *server) Stop() error {
 
 // BroadcastRunnerChange broadcasts a runner status change to all matching groups.
 func (s *server) BroadcastRunnerChange(runner *store.Runner) {
+	s.cfgMu.RLock()
+	groups := s.cfg.Groups.GitHub
+	s.cfgMu.RUnlock()
+
 	// Find all groups whose labels the runner matches.
-	for _, groupCfg := range s.cfg.Groups.GitHub {
+	for _, groupCfg := range groups {
 		if runnerMatchesLabels(runner.Labels, groupCfg.RunnerLabels) {
 			s.hub.BroadcastRunnerStatus(runner, groupCfg.ID)
 		}
@@ -267,6 +276,9 @@ func (s *server) setupRouter() {
 
 				// Runner refresh (admin).
 				r.Post("/runners/refresh", s.handleRefreshRunners)
+
+				// Template reload (admin).
+				r.Post("/templates/reload", s.handleReloadTemplates)
 			})
 		})
 	})
@@ -2210,4 +2222,91 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 	}
 
 	return nil
+}
+
+// ReloadTemplatesResponse is the response for the template reload endpoint.
+type ReloadTemplatesResponse struct {
+	Message string                      `json:"message" example:"Templates reloaded successfully"`
+	Groups  []ReloadTemplatesGroupStats `json:"groups"`
+}
+
+// ReloadTemplatesGroupStats contains template change counts for a group.
+type ReloadTemplatesGroupStats struct {
+	GroupID   string `json:"group_id" example:"my-group"`
+	Templates int    `json:"templates" example:"5"`
+}
+
+// handleReloadTemplates godoc
+//
+//	@Summary		Reload templates
+//	@Description	Re-reads the config file to reload templates from files and URLs, then syncs to the database (requires admin)
+//	@Tags			templates
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Success		200	{object}	ReloadTemplatesResponse
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/templates/reload [post]
+func (s *server) handleReloadTemplates(w http.ResponseWriter, r *http.Request) {
+	s.log.Info("Reloading templates from config")
+
+	// Re-read config file to pick up updated template files and URLs.
+	newCfg, err := config.Load(s.configPath)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to reload config")
+		s.writeError(w, http.StatusInternalServerError,
+			fmt.Sprintf("Failed to reload config: %v", err))
+
+		return
+	}
+
+	// Sync the refreshed templates to the database.
+	if err := SyncGroupsFromConfig(r.Context(), s.log, s.store, newCfg); err != nil {
+		s.log.WithError(err).Error("Failed to sync templates")
+		s.writeError(w, http.StatusInternalServerError,
+			fmt.Sprintf("Failed to sync templates: %v", err))
+
+		return
+	}
+
+	// Update the in-memory config's groups so the poller picks up changes.
+	s.cfgMu.Lock()
+	s.cfg.Groups = newCfg.Groups
+	s.cfgMu.Unlock()
+
+	// Build response with per-group template counts.
+	groups := make([]ReloadTemplatesGroupStats, 0, len(newCfg.Groups.GitHub))
+	for _, g := range newCfg.Groups.GitHub {
+		groups = append(groups, ReloadTemplatesGroupStats{
+			GroupID:   g.ID,
+			Templates: len(g.WorkflowDispatchTemplates),
+		})
+	}
+
+	// Create audit log entry.
+	actor := "anonymous"
+	if user := auth.UserFromContext(r.Context()); user != nil {
+		actor = user.Username
+	}
+
+	auditEntry := &store.AuditEntry{
+		ID:         uuid.New().String(),
+		Action:     store.AuditActionConfigReload,
+		EntityType: store.AuditEntitySystem,
+		EntityID:   "templates",
+		Actor:      actor,
+		Details:    fmt.Sprintf("Reloaded templates for %d groups", len(groups)),
+		CreatedAt:  time.Now(),
+	}
+
+	if err := s.store.CreateAuditEntry(r.Context(), auditEntry); err != nil {
+		s.log.WithError(err).Warn("Failed to create audit entry for template reload")
+	}
+
+	s.log.WithField("groups", len(groups)).Info("Templates reloaded successfully")
+	s.writeJSON(w, http.StatusOK, ReloadTemplatesResponse{
+		Message: "Templates reloaded successfully",
+		Groups:  groups,
+	})
 }
