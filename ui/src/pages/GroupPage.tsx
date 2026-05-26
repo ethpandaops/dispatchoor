@@ -863,7 +863,7 @@ export function GroupPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-zinc-100">{group.name}</h1>
@@ -888,7 +888,7 @@ export function GroupPage() {
           </div>
         </div>
         {isAdmin && (
-          <div className="flex gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             {group.paused ? (
               <button
                 onClick={() => unpauseGroupMutation.mutate()}
@@ -1012,7 +1012,7 @@ export function GroupPage() {
           {/* Content */}
           {activeTab === 'queue' ? (
             <LayoutGroup>
-              <div className="grid gap-6 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 {/* Pending jobs with drag-and-drop */}
                 <div>
                   <div className="mb-3 flex items-center justify-between">
@@ -1548,17 +1548,18 @@ export function GroupPage() {
               )}
 
               {filteredTemplates.length > 0 ? (
-                <div className="grid gap-3">
+                <div className="grid grid-cols-1 gap-3">
                   {filteredTemplates.map((template) => (
                     <div
                       key={template.id}
-                      className={`rounded-sm border bg-zinc-900 p-4 ${
+                      className={`@container min-w-0 rounded-sm border bg-zinc-900 p-4 ${
                         templateSelectionMode && selectedTemplateIds.has(template.id)
                           ? 'border-blue-500/50 ring-1 ring-blue-500/20'
                           : 'border-zinc-800'
                       }`}
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-3 @md:flex-row @md:items-start @md:justify-between">
+                        <div className="flex min-w-0 items-start gap-3">
                         {/* Checkbox for selection mode */}
                         {templateSelectionMode && template.in_config && (
                           <input
@@ -1569,7 +1570,7 @@ export function GroupPage() {
                           />
                         )}
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <h4 className="text-sm font-medium text-zinc-200">
                               {template.name}
                             </h4>
@@ -1640,7 +1641,8 @@ export function GroupPage() {
                             </a>
                           </div>
                         </div>
-                        <div className="flex shrink-0 flex-col items-end gap-2">
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2 @md:flex-col @md:items-end">
                           {autoRequeueTemplateIds.has(template.id) && (
                             <span className="inline-flex items-center gap-1 rounded-sm bg-purple-500/20 px-1.5 py-0.5 text-xs text-purple-400">
                               <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1788,7 +1790,7 @@ export function GroupPage() {
 
       {/* Bulk Action Bars */}
       {selectedTemplateIds.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xs border border-zinc-700 bg-zinc-900 px-4 py-2 shadow-lg">
+        <div className="fixed bottom-4 inset-x-2 z-50 flex flex-wrap items-center justify-center gap-2 rounded-xs border border-zinc-700 bg-zinc-900 px-3 py-2 shadow-lg sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:flex-nowrap sm:gap-3 sm:px-4">
           <span className="text-sm text-zinc-300">{selectedTemplateIds.size} selected</span>
           <div className="h-4 w-px bg-zinc-700" />
           <button
@@ -1816,7 +1818,7 @@ export function GroupPage() {
       )}
 
       {selectedRunningIds.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xs border border-zinc-700 bg-zinc-900 px-4 py-2 shadow-lg">
+        <div className="fixed bottom-4 inset-x-2 z-50 flex flex-wrap items-center justify-center gap-2 rounded-xs border border-zinc-700 bg-zinc-900 px-3 py-2 shadow-lg sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:flex-nowrap sm:gap-3 sm:px-4">
           <span className="text-sm text-zinc-300">{selectedRunningIds.size} selected</span>
           <div className="h-4 w-px bg-zinc-700" />
           <button
@@ -1850,7 +1852,7 @@ export function GroupPage() {
       )}
 
       {selectedPendingIds.size > 0 && (
-        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xs border border-zinc-700 bg-zinc-900 px-4 py-2 shadow-lg">
+        <div className="fixed bottom-4 inset-x-2 z-50 flex flex-wrap items-center justify-center gap-2 rounded-xs border border-zinc-700 bg-zinc-900 px-3 py-2 shadow-lg sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:flex-nowrap sm:gap-3 sm:px-4">
           <span className="text-sm text-zinc-300">{selectedPendingIds.size} selected</span>
           <div className="h-4 w-px bg-zinc-700" />
           <button

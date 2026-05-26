@@ -1,10 +1,20 @@
 export interface AppConfig {
   apiUrl: string;
+  // Base URL for Benchmarkoor (e.g. https://benchmarkoor.core.ethpandaops.io).
+  // When set, jobs with a GitHub run_id display a link to the corresponding
+  // benchmark run, filtered via the github.run_id metadata label.
+  benchmarkoorUrl?: string;
 }
 
 const defaultConfig: AppConfig = {
   apiUrl: '/api/v1',
 };
+
+export function buildBenchmarkoorRunUrl(runId: number | string): string | undefined {
+  const base = config.benchmarkoorUrl?.replace(/\/+$/, '');
+  if (!base) return undefined;
+  return `${base}/runs?labels=${encodeURIComponent('github.run_id')}:${encodeURIComponent(String(runId))}`;
+}
 
 let config: AppConfig = defaultConfig;
 let configLoaded = false;

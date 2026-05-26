@@ -17,7 +17,7 @@ export function Layout() {
       <Sidebar />
       <main
         className={`transition-all duration-200 ${
-          sidebarCollapsed ? 'ml-0' : 'ml-64'
+          sidebarCollapsed ? 'lg:ml-0' : 'lg:ml-64'
         }`}
       >
         {isFullBleed ? (
