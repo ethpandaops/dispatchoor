@@ -5,7 +5,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { StatusIndicator } from './StatusIndicator';
 
 export function Header() {
-  const { sidebarCollapsed, toggleSidebar } = useUIStore();
+  const { sidebarCollapsed, toggleSidebar, toggleMobileNav } = useUIStore();
   const { user, logout } = useAuthStore();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -26,10 +26,22 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b border-zinc-800 bg-zinc-950 px-4">
+    <header className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b border-zinc-800 bg-zinc-950 px-3 sm:gap-4 sm:px-4">
+      {/* Mobile: open the overlay nav drawer. */}
+      <button
+        onClick={toggleMobileNav}
+        className="inline-flex size-9 items-center justify-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 lg:hidden"
+        aria-label="Open navigation"
+      >
+        <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+
+      {/* Desktop: collapse/expand the pinned sidebar. */}
       <button
         onClick={toggleSidebar}
-        className="inline-flex size-9 items-center justify-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        className="hidden size-9 items-center justify-center rounded-sm text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 lg:inline-flex"
         aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
         <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -42,14 +54,14 @@ export function Header() {
         </svg>
       </button>
 
-      <div className="flex flex-1 items-center">
-        <Link to="/" className="flex items-center gap-2 text-lg font-semibold text-zinc-100 hover:text-white">
-          <img src="/images/dispatchoor_logo_white.png" alt="Dispatchoor" className="h-8" />
-          Dispatchoor
+      <div className="flex min-w-0 flex-1 items-center">
+        <Link to="/" className="flex min-w-0 items-center gap-2 text-lg font-semibold text-zinc-100 hover:text-white">
+          <img src="/images/dispatchoor_logo_white.png" alt="Dispatchoor" className="h-8 shrink-0" />
+          <span className="truncate">Dispatchoor</span>
         </Link>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-1 sm:gap-3">
         {/* System status indicator */}
         <StatusIndicator />
 
@@ -93,16 +105,16 @@ export function Header() {
               onClick={() => setShowUserMenu(!showUserMenu)}
               className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-zinc-300 hover:bg-zinc-800"
             >
-              <div className="flex size-7 items-center justify-center rounded-full bg-zinc-700 text-sm font-medium uppercase">
+              <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-zinc-700 text-sm font-medium uppercase">
                 {user.username.charAt(0)}
               </div>
-              <span className="text-sm">{user.username}</span>
+              <span className="hidden text-sm sm:inline">{user.username}</span>
               {user.role === 'admin' && (
-                <span className="rounded-xs bg-amber-500/20 px-1.5 py-0.5 text-xs text-amber-400">
+                <span className="hidden rounded-xs bg-amber-500/20 px-1.5 py-0.5 text-xs text-amber-400 sm:inline">
                   admin
                 </span>
               )}
-              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="size-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"

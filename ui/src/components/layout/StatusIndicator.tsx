@@ -81,9 +81,9 @@ export function StatusIndicator() {
         onClick={() => setShowDropdown(!showDropdown)}
         className="flex items-center gap-1.5 rounded-sm px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
       >
-        <div className={`size-2 rounded-full ${getStatusColor(overallStatus)}`} />
-        <span className="text-xs">{statusLabel}</span>
-        <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className={`size-2 shrink-0 rounded-full ${getStatusColor(overallStatus)}`} />
+        <span className="hidden text-xs sm:inline">{statusLabel}</span>
+        <svg className="size-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>

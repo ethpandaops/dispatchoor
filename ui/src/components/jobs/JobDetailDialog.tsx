@@ -4,6 +4,7 @@ import type { Job, JobTemplate } from '../../types';
 import { api } from '../../api/client';
 import { useAuthStore } from '../../stores/authStore';
 import { LabelsDisplay } from '../common/LabelBadge';
+import { buildBenchmarkoorRunUrl } from '../../config';
 
 interface JobDetailDialogProps {
   job: Job;
@@ -221,20 +222,20 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
       {/* Dialog */}
       <div className="relative w-full max-w-2xl max-h-[85vh] mx-4 flex flex-col rounded-sm border border-zinc-800 bg-zinc-900 shadow-xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 shrink-0">
-          <div className="flex items-center gap-3">
-            <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${job.paused ? 'bg-zinc-500/10 text-zinc-400' : colors.bg + ' ' + colors.text}`}>
+        <div className="flex items-start justify-between gap-2 border-b border-zinc-800 px-4 py-3 shrink-0">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${job.paused ? 'bg-zinc-500/10 text-zinc-400' : colors.bg + ' ' + colors.text}`}>
               <span className={`size-1.5 rounded-full ${job.paused ? 'bg-zinc-400' : colors.dot}`} />
               {job.paused ? 'paused' : job.status}
             </span>
-            <h2 className="text-lg font-semibold text-zinc-100">
+            <h2 className="min-w-0 break-words text-lg font-semibold text-zinc-100">
               {job.name ?? template?.name ?? job.template_id}
             </h2>
-            <span className="text-sm text-zinc-500">#{job.position}</span>
+            <span className="shrink-0 text-sm text-zinc-500">#{job.position}</span>
           </div>
           <button
             onClick={onClose}
-            className="rounded-sm p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+            className="mt-0.5 shrink-0 rounded-sm p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
           >
             <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -259,7 +260,7 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
                 <span className="text-xs text-zinc-500">Edit fields to override job</span>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               {/* Owner */}
               <div>
                 <div className="flex items-center gap-2 mb-1">
@@ -414,12 +415,28 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
                 </a>
               </div>
             )}
+            {job.run_id && buildBenchmarkoorRunUrl(job.run_id) && (
+              <div className="pt-2 border-t border-zinc-700/50">
+                <span className="text-zinc-500 text-xs">Benchmarkoor</span>
+                <a
+                  href={buildBenchmarkoorRunUrl(job.run_id)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-sm text-zinc-200 hover:text-blue-400"
+                >
+                  View benchmark run
+                  <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              </div>
+            )}
           </div>
 
           {/* Timing Info */}
           <div className="rounded-sm border border-zinc-800 bg-zinc-800/30 p-3 space-y-2">
             <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">Timing</h3>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
               <div>
                 <span className="text-zinc-500">Created</span>
                 <p className="text-zinc-200">{formatDateTime(job.created_at)}</p>

@@ -58,9 +58,9 @@ export function RunnersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold text-zinc-100">All Runners</h1>
-        <div className="flex items-center gap-4 text-sm">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
           <span className="text-zinc-400">
             <span className="font-semibold text-green-400">{idleCount}</span> idle
           </span>
@@ -89,8 +89,8 @@ export function RunnersPage() {
           ))}
         </div>
       ) : runners && runners.length > 0 ? (
-        <div className="overflow-hidden rounded-sm border border-zinc-800 bg-zinc-900">
-          <table className="w-full">
+        <div className="overflow-x-auto rounded-sm border border-zinc-800 bg-zinc-900">
+          <table className="w-full min-w-[44rem]">
             <thead className="border-b border-zinc-800 bg-zinc-900/50">
               <tr className="text-left text-sm font-medium text-zinc-400">
                 <th className="px-4 py-3">Name</th>

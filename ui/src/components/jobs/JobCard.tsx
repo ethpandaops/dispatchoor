@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Job, JobTemplate } from '../../types';
 import { api } from '../../api/client';
 import { useAuthStore } from '../../stores/authStore';
 import { LabelsDisplay } from '../common/LabelBadge';
 import { JobDetailDialog } from './JobDetailDialog';
+import { buildBenchmarkoorRunUrl } from '../../config';
 
 interface JobCardProps {
   job: Job;
@@ -30,6 +31,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   // Update current time every second for running jobs to show live duration
@@ -212,9 +214,154 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
   const effectiveOwner = job.owner ?? template?.owner;
   const effectiveRepo = job.repo ?? template?.repo;
 
+  // Build the action list once, then render it two ways: inline icon buttons on
+  // wide cards (@md+), and a labelled overflow menu on narrow cards.
+  const isActive = job.status === 'triggered' || job.status === 'running';
+  const requeueBusy = toggleRequeueMutation.isPending || disableRequeueMutation.isPending;
+  const handleRequeueToggle = () => {
+    if (job.auto_requeue) {
+      setShowStopRequeueConfirm(true);
+    } else {
+      toggleRequeueMutation.mutate();
+    }
+  };
+  const benchmarkoorUrl = job.run_id ? buildBenchmarkoorRunUrl(job.run_id) : undefined;
+
+  type JobAction = {
+    key: string;
+    label: string;
+    icon: ReactNode;
+    onClick?: () => void;
+    href?: string;
+    disabled?: boolean;
+    tone?: 'default' | 'danger' | 'green' | 'purple';
+    active?: boolean;
+  };
+
+  const actions: JobAction[] = [
+    {
+      key: 'details',
+      label: 'View details',
+      onClick: () => setShowDetailDialog(true),
+      icon: (
+        <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      ),
+    },
+  ];
+  if (job.run_url) {
+    actions.push({
+      key: 'run',
+      label: 'View run on GitHub',
+      href: job.run_url,
+      icon: (
+        <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z" />
+          <path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z" />
+        </svg>
+      ),
+    });
+  }
+  if (benchmarkoorUrl) {
+    actions.push({
+      key: 'benchmarkoor',
+      label: 'View on Benchmarkoor',
+      href: benchmarkoorUrl,
+      icon: (
+        <svg className="size-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18M7 15l4-4 3 3 5-6" />
+        </svg>
+      ),
+    });
+  }
+  if (isAdmin && isActive) {
+    actions.push({
+      key: 'cancel',
+      label: 'Cancel workflow',
+      tone: 'danger',
+      disabled: cancelMutation.isPending,
+      onClick: () => setShowCancelConfirm(true),
+      icon: (
+        <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M6 6h12v12H6z" />
+        </svg>
+      ),
+    });
+  }
+  if (isAdmin && (isActive || job.status === 'pending')) {
+    actions.push({
+      key: 'requeue',
+      label: job.auto_requeue ? 'Disable auto-requeue' : 'Enable auto-requeue',
+      tone: 'purple',
+      active: job.auto_requeue,
+      disabled: requeueBusy,
+      onClick: handleRequeueToggle,
+      icon: (
+        <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      ),
+    });
+  }
+  if (isAdmin && job.status === 'pending' && !job.paused) {
+    actions.push({
+      key: 'pause',
+      label: 'Pause job',
+      disabled: pauseMutation.isPending,
+      onClick: () => pauseMutation.mutate(),
+      icon: (
+        <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+        </svg>
+      ),
+    });
+  }
+  if (isAdmin && job.status === 'pending' && job.paused) {
+    actions.push({
+      key: 'resume',
+      label: 'Resume job',
+      tone: 'green',
+      disabled: unpauseMutation.isPending,
+      onClick: () => unpauseMutation.mutate(),
+      icon: (
+        <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M8 5v14l11-7z" />
+        </svg>
+      ),
+    });
+  }
+  if (isAdmin && (job.status === 'pending' || job.status === 'failed')) {
+    actions.push({
+      key: 'delete',
+      label: 'Remove job',
+      tone: 'danger',
+      disabled: deleteMutation.isPending,
+      onClick: () => setShowDeleteConfirm(true),
+      icon: (
+        <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+        </svg>
+      ),
+    });
+  }
+
+  const inlineToneClass: Record<NonNullable<JobAction['tone']>, string> = {
+    default: 'text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300',
+    danger: 'text-zinc-500 hover:bg-red-500/10 hover:text-red-400',
+    green: 'text-zinc-500 hover:bg-green-500/10 hover:text-green-400',
+    purple: 'text-zinc-500 hover:bg-purple-500/10 hover:text-purple-400',
+  };
+  const menuToneClass: Record<NonNullable<JobAction['tone']>, string> = {
+    default: 'text-zinc-300 hover:bg-zinc-700',
+    danger: 'text-red-400 hover:bg-red-500/10',
+    green: 'text-green-400 hover:bg-green-500/10',
+    purple: 'text-purple-400 hover:bg-zinc-700',
+  };
+
   return (
     <div
-      className={`rounded-sm border border-zinc-800 bg-zinc-900 p-4 transition-shadow ${
+      className={`@container rounded-sm border border-zinc-800 bg-zinc-900 p-4 transition-shadow ${
         isDragging ? 'shadow-lg ring-2 ring-blue-500' : ''
       }`}
     >
@@ -233,7 +380,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
 
         <div className="flex-1 min-w-0">
           {/* Header */}
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
             <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${job.paused ? 'bg-zinc-500/10 text-zinc-400' : colors.bg + ' ' + colors.text}`}>
               <span className={`size-1.5 rounded-full ${job.paused ? 'bg-zinc-400' : colors.dot}`} />
               {job.paused ? 'paused' : job.status}
@@ -260,7 +407,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
           </div>
 
           {/* Job name */}
-          <h4 className="text-sm font-medium text-zinc-200 truncate">
+          <h4 className="text-sm font-medium text-zinc-200 break-words" title={effectiveName}>
             {effectiveName}
           </h4>
 
@@ -279,133 +426,97 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
           )}
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-1">
-          {/* Info/details button */}
-          <button
-            onClick={() => setShowDetailDialog(true)}
-            className="rounded-sm p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-            title="View details"
-          >
-            <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </button>
-          {/* Cancel button for running/triggered jobs */}
-          {isAdmin && (job.status === 'triggered' || job.status === 'running') && (
+        {/* Actions: inline icons on wide cards, overflow menu on narrow ones */}
+        <div className="flex shrink-0 items-start gap-1">
+          {/* Inline (wide card) */}
+          <div className="hidden items-center gap-1 @md:flex">
+            {actions.map((action) =>
+              action.href ? (
+                <a
+                  key={action.key}
+                  href={action.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  title={action.label}
+                  className={`rounded-sm p-1.5 ${inlineToneClass[action.tone ?? 'default']}`}
+                >
+                  {action.icon}
+                </a>
+              ) : (
+                <button
+                  key={action.key}
+                  onClick={action.onClick}
+                  disabled={action.disabled}
+                  title={action.label}
+                  className={`rounded-sm p-1.5 disabled:opacity-50 ${
+                    action.active
+                      ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
+                      : inlineToneClass[action.tone ?? 'default']
+                  }`}
+                >
+                  {action.icon}
+                </button>
+              )
+            )}
+          </div>
+
+          {/* Overflow menu (narrow card) */}
+          <div className="relative @md:hidden">
             <button
-              onClick={() => setShowCancelConfirm(true)}
-              disabled={cancelMutation.isPending}
-              className="rounded-sm p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-              title="Cancel workflow"
+              onClick={() => setShowActionsMenu((v) => !v)}
+              className="rounded-sm p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+              aria-label="Actions"
+              title="Actions"
             >
-              <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M6 6h12v12H6z"/>
+              <svg className="size-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 8a2 2 0 100-4 2 2 0 000 4zm0 2a2 2 0 100 4 2 2 0 000-4zm0 6a2 2 0 100 4 2 2 0 000-4z" />
               </svg>
             </button>
-          )}
-          {/* Auto-requeue toggle for running/triggered jobs - appears before GitHub link */}
-          {isAdmin && (job.status === 'triggered' || job.status === 'running') && (
-            <button
-              onClick={() => {
-                if (job.auto_requeue) {
-                  setShowStopRequeueConfirm(true);
-                } else {
-                  toggleRequeueMutation.mutate();
-                }
-              }}
-              disabled={toggleRequeueMutation.isPending || disableRequeueMutation.isPending}
-              className={`rounded-sm p-1.5 text-zinc-500 disabled:opacity-50 ${
-                job.auto_requeue
-                  ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
-                  : 'hover:bg-purple-500/10 hover:text-purple-400'
-              }`}
-              title={job.auto_requeue ? 'Disable auto-requeue' : 'Enable auto-requeue'}
-            >
-              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-          )}
-          {job.run_url && (
-            <a
-              href={job.run_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-sm p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-              title="View run on GitHub"
-            >
-              <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
-                <path d="M5 5v14h14v-7h-2v5H7V7h5V5H5z"/>
-              </svg>
-            </a>
-          )}
-          {isAdmin && job.status === 'pending' && !job.paused && (
-            <button
-              onClick={() => pauseMutation.mutate()}
-              disabled={pauseMutation.isPending}
-              className="rounded-sm p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
-              title="Pause job"
-            >
-              <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-              </svg>
-            </button>
-          )}
-          {isAdmin && job.status === 'pending' && job.paused && (
-            <button
-              onClick={() => unpauseMutation.mutate()}
-              disabled={unpauseMutation.isPending}
-              className="rounded-sm p-1.5 text-zinc-500 hover:bg-green-500/10 hover:text-green-400 disabled:opacity-50"
-              title="Resume job"
-            >
-              <svg className="size-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z"/>
-              </svg>
-            </button>
-          )}
-          {/* Auto-requeue toggle for pending jobs */}
-          {isAdmin && job.status === 'pending' && (
-            <button
-              onClick={() => {
-                // Show confirmation modal when disabling auto-requeue
-                if (job.auto_requeue) {
-                  setShowStopRequeueConfirm(true);
-                } else {
-                  toggleRequeueMutation.mutate();
-                }
-              }}
-              disabled={toggleRequeueMutation.isPending || disableRequeueMutation.isPending}
-              className={`rounded-sm p-1.5 text-zinc-500 disabled:opacity-50 ${
-                job.auto_requeue
-                  ? 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
-                  : 'hover:bg-purple-500/10 hover:text-purple-400'
-              }`}
-              title={job.auto_requeue ? 'Disable auto-requeue' : 'Enable auto-requeue'}
-            >
-              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-          )}
-          {isAdmin && (job.status === 'pending' || job.status === 'failed') && (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={deleteMutation.isPending}
-              className="rounded-sm p-1.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-              title="Remove job"
-            >
-              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          )}
+            {showActionsMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowActionsMenu(false)} />
+                <div className="absolute right-0 z-20 mt-1 w-52 rounded-sm border border-zinc-700 bg-zinc-800 py-1 shadow-lg">
+                  {actions.map((action) => {
+                    const cls = `flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm ${
+                      action.active ? 'text-purple-400 hover:bg-zinc-700' : menuToneClass[action.tone ?? 'default']
+                    }`;
+                    return action.href ? (
+                      <a
+                        key={action.key}
+                        href={action.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setShowActionsMenu(false)}
+                        className={cls}
+                      >
+                        <span className="shrink-0">{action.icon}</span>
+                        {action.label}
+                      </a>
+                    ) : (
+                      <button
+                        key={action.key}
+                        onClick={() => {
+                          setShowActionsMenu(false);
+                          action.onClick?.();
+                        }}
+                        disabled={action.disabled}
+                        className={`${cls} disabled:opacity-50`}
+                      >
+                        <span className="shrink-0">{action.icon}</span>
+                        {action.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Bottom row: context left, timing right */}
-      <div className="mt-3 flex items-center justify-between gap-4 text-xs text-zinc-500">
+      {/* Bottom row: context left, timing right (stacks when the card is narrow) */}
+      <div className="mt-3 flex flex-col gap-1 text-xs text-zinc-500 @md:flex-row @md:items-center @md:justify-between @md:gap-4">
         {/* Context info - left */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           {(effectiveOwner && effectiveRepo) && (
@@ -426,7 +537,7 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
           )}
         </div>
         {/* Timing info - right */}
-        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 @md:justify-end">
           <span className="flex items-center gap-1" title="Created at">
             <svg className="size-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
