@@ -137,8 +137,24 @@ var (
 // testMetrics is a shared metrics instance to avoid duplicate prometheus registration.
 var testMetrics = metrics.New()
 
-// writeTestConfig writes a minimal valid config YAML file and returns the path.
+// writeTestConfig writes a minimal valid config YAML file with a single
+// "test-group" group and returns the path.
 func writeTestConfig(t *testing.T, dir, dbPath string, templates []map[string]any) string {
+	t.Helper()
+
+	return writeTestConfigWithGroups(t, dir, dbPath, []map[string]any{
+		{
+			"id":                          "test-group",
+			"name":                        "Test Group",
+			"runner_labels":               []string{"self-hosted"},
+			"workflow_dispatch_templates": templates,
+		},
+	})
+}
+
+// writeTestConfigWithGroups writes a minimal valid config YAML file with the
+// given groups and returns the path.
+func writeTestConfigWithGroups(t *testing.T, dir, dbPath string, groups []map[string]any) string {
 	t.Helper()
 
 	cfg := map[string]any{
@@ -160,14 +176,7 @@ func writeTestConfig(t *testing.T, dir, dbPath string, templates []map[string]an
 			},
 		},
 		"groups": map[string]any{
-			"github": []map[string]any{
-				{
-					"id":                          "test-group",
-					"name":                        "Test Group",
-					"runner_labels":               []string{"self-hosted"},
-					"workflow_dispatch_templates": templates,
-				},
-			},
+			"github": groups,
 		},
 	}
 
@@ -475,6 +484,158 @@ func TestHandleReloadTemplates_InvalidConfig(t *testing.T) {
 
 	if len(dbTemplates) != 1 {
 		t.Errorf("Expected 1 template still in DB, got %d", len(dbTemplates))
+	}
+}
+
+func TestHandleDeleteGroup(t *testing.T) {
+	ctx := context.Background()
+	log := logrus.New()
+	log.SetOutput(os.Stderr)
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	templates := []map[string]any{
+		{
+			"id":          "tmpl-1",
+			"name":        "Template 1",
+			"owner":       "org",
+			"repo":        "repo",
+			"workflow_id": "build.yml",
+			"ref":         "main",
+		},
+	}
+	cfgPath := writeTestConfig(t, tmpDir, dbPath, templates)
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	st := store.NewSQLiteStore(log, dbPath)
+	if err := st.Start(ctx); err != nil {
+		t.Fatalf("Failed to start store: %v", err)
+	}
+	defer func() { _ = st.Stop() }()
+
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("Failed to migrate: %v", err)
+	}
+
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+		t.Fatalf("Failed to sync groups: %v", err)
+	}
+
+	// Create a job so we can verify run information is deleted with the group.
+	now := time.Now()
+	job := &store.Job{
+		ID:         "job-1",
+		GroupID:    "test-group",
+		TemplateID: "tmpl-1",
+		Status:     store.JobStatusCompleted,
+		CreatedBy:  "testadmin",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+
+	if err := st.CreateJob(ctx, job); err != nil {
+		t.Fatalf("Failed to create job: %v", err)
+	}
+
+	adminUser := &store.User{
+		ID:       "test-user-id",
+		Username: "testadmin",
+		Role:     store.RoleAdmin,
+	}
+
+	deleteGroup := func(s *server, groupID string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/groups/"+groupID, nil)
+		req.Header.Set("Authorization", "Bearer test-token")
+		req = req.WithContext(auth.ContextWithUser(req.Context(), adminUser))
+
+		w := httptest.NewRecorder()
+		s.router.ServeHTTP(w, req)
+
+		return w
+	}
+
+	// While the group is still in the config, deletion must be rejected.
+	srv := NewServer(log, cfg, cfgPath, st, &stubQueue{}, &stubAuth{},
+		&stubGitHubClient{}, &stubGitHubClient{}, testMetrics)
+	s := srv.(*server)
+
+	if w := deleteGroup(s, "test-group"); w.Code != http.StatusConflict {
+		t.Fatalf("Expected status 409, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Simulate the group being removed from the config file.
+	emptyCfgPath := writeTestConfigWithGroups(t, tmpDir, dbPath, []map[string]any{})
+
+	emptyCfg, err := config.Load(emptyCfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	srv = NewServer(log, emptyCfg, emptyCfgPath, st, &stubQueue{}, &stubAuth{},
+		&stubGitHubClient{}, &stubGitHubClient{}, testMetrics)
+	s = srv.(*server)
+
+	if w := deleteGroup(s, "test-group"); w.Code != http.StatusNoContent {
+		t.Fatalf("Expected status 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Group, templates and jobs must all be gone.
+	group, err := st.GetGroup(ctx, "test-group")
+	if err != nil {
+		t.Fatalf("Failed to get group: %v", err)
+	}
+
+	if group != nil {
+		t.Error("Expected group to be deleted")
+	}
+
+	dbTemplates, err := st.ListJobTemplatesByGroup(ctx, "test-group")
+	if err != nil {
+		t.Fatalf("Failed to list templates: %v", err)
+	}
+
+	if len(dbTemplates) != 0 {
+		t.Errorf("Expected 0 templates after delete, got %d", len(dbTemplates))
+	}
+
+	dbJob, err := st.GetJob(ctx, "job-1")
+	if err != nil {
+		t.Fatalf("Failed to get job: %v", err)
+	}
+
+	if dbJob != nil {
+		t.Error("Expected job to be deleted with group")
+	}
+
+	// An audit entry must be recorded.
+	entries, _, err := st.ListAuditEntries(ctx, store.AuditQueryOpts{
+		Action: ptr(store.AuditActionGroupDeleted),
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("Failed to list audit entries: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 audit entry, got %d", len(entries))
+	}
+
+	if entries[0].EntityID != "test-group" {
+		t.Errorf("Expected audit entity 'test-group', got '%s'", entries[0].EntityID)
+	}
+
+	if entries[0].Actor != "testadmin" {
+		t.Errorf("Expected audit actor 'testadmin', got '%s'", entries[0].Actor)
+	}
+
+	// Deleting a non-existent group returns 404.
+	if w := deleteGroup(s, "test-group"); w.Code != http.StatusNotFound {
+		t.Fatalf("Expected status 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

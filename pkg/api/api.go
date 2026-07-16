@@ -260,6 +260,7 @@ func (s *server) setupRouter() {
 				// Group management (admin).
 				r.Post("/groups/{id}/pause", s.handlePauseGroup)
 				r.Post("/groups/{id}/unpause", s.handleUnpauseGroup)
+				r.Delete("/groups/{id}", s.handleDeleteGroup)
 
 				// Queue management (admin).
 				r.Post("/groups/{id}/queue", s.handleAddJob)
@@ -711,6 +712,89 @@ func (s *server) handleUnpauseGroup(w http.ResponseWriter, r *http.Request) {
 
 	s.log.WithField("group", id).Info("Group unpaused")
 	s.writeJSON(w, http.StatusOK, group)
+}
+
+// handleDeleteGroup godoc
+//
+//	@Summary		Delete group
+//	@Description	Deletes a group along with all of its job templates, queued jobs and run history (requires admin). The group must no longer be present in the config file.
+//	@Tags			groups
+//	@Security		BearerAuth
+//	@Param			id	path	string	true	"Group ID"
+//	@Success		204	"Group deleted successfully"
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		403	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Failure		409	{object}	ErrorResponse
+//	@Failure		500	{object}	ErrorResponse
+//	@Router			/groups/{id} [delete]
+func (s *server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	group, err := s.store.GetGroup(r.Context(), id)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to get group")
+		s.writeError(w, http.StatusInternalServerError, "Failed to get group")
+
+		return
+	}
+
+	if group == nil {
+		s.writeError(w, http.StatusNotFound, "Group not found")
+
+		return
+	}
+
+	// Refuse to delete groups that are still defined in the config file:
+	// the next config sync would simply recreate them.
+	s.cfgMu.RLock()
+	inConfig := false
+
+	for _, groupCfg := range s.cfg.Groups.GitHub {
+		if groupCfg.ID == id {
+			inConfig = true
+
+			break
+		}
+	}
+	s.cfgMu.RUnlock()
+
+	if inConfig {
+		s.writeError(w, http.StatusConflict,
+			"Group is still defined in the config file; remove it from the config first")
+
+		return
+	}
+
+	// Deleting the group cascades to its job templates and jobs (run history).
+	if err := s.store.DeleteGroup(r.Context(), id); err != nil {
+		s.log.WithError(err).Error("Failed to delete group")
+		s.writeError(w, http.StatusInternalServerError, "Failed to delete group")
+
+		return
+	}
+
+	actor := "anonymous"
+	if user := auth.UserFromContext(r.Context()); user != nil {
+		actor = user.Username
+	}
+
+	auditEntry := &store.AuditEntry{
+		ID:         uuid.New().String(),
+		Action:     store.AuditActionGroupDeleted,
+		EntityType: store.AuditEntityGroup,
+		EntityID:   id,
+		Actor:      actor,
+		Details:    fmt.Sprintf("Deleted group %q with all templates and run history", group.Name),
+		CreatedAt:  time.Now(),
+	}
+
+	if err := s.store.CreateAuditEntry(r.Context(), auditEntry); err != nil {
+		s.log.WithError(err).Warn("Failed to create audit entry for group deletion")
+	}
+
+	s.log.WithField("group", id).Info("Group deleted")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleListJobTemplates godoc

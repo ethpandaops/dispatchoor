@@ -755,6 +755,44 @@ paths:
       tags:
       - groups
   /groups/{id}:
+    delete:
+      description: Deletes a group along with all of its job templates, queued jobs
+        and run history (requires admin). The group must no longer be present in the
+        config file.
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Group deleted successfully
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete group
+      tags:
+      - groups
     get:
       description: Returns a single group by ID
       parameters:
