@@ -580,6 +580,30 @@ func TestHandleDeleteGroup(t *testing.T) {
 		&stubGitHubClient{}, &stubGitHubClient{}, testMetrics)
 	s = srv.(*server)
 
+	// A pending (or triggered/running) job must block deletion.
+	pendingJob := &store.Job{
+		ID:         "job-2",
+		GroupID:    "test-group",
+		TemplateID: "tmpl-1",
+		Status:     store.JobStatusPending,
+		CreatedBy:  "testadmin",
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+
+	if err := st.CreateJob(ctx, pendingJob); err != nil {
+		t.Fatalf("Failed to create pending job: %v", err)
+	}
+
+	if w := deleteGroup(s, "test-group"); w.Code != http.StatusConflict {
+		t.Fatalf("Expected status 409 for group with active jobs, got %d: %s",
+			w.Code, w.Body.String())
+	}
+
+	if err := st.DeleteJob(ctx, "job-2"); err != nil {
+		t.Fatalf("Failed to delete pending job: %v", err)
+	}
+
 	if w := deleteGroup(s, "test-group"); w.Code != http.StatusNoContent {
 		t.Fatalf("Expected status 204, got %d: %s", w.Code, w.Body.String())
 	}

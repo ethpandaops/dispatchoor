@@ -15,6 +15,7 @@ export interface Group {
   runner_labels: string[];
   enabled: boolean;
   paused: boolean;
+  in_config?: boolean;
   created_at: string;
   updated_at: string;
 }

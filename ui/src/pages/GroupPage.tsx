@@ -968,8 +968,13 @@ export function GroupPage() {
             </div>
             <button
               onClick={() => setShowDeleteDialog(true)}
-              className="flex items-center gap-2 rounded-sm border border-red-500/40 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10"
-              title="Delete this group and all of its run information"
+              disabled={group.in_config}
+              className="flex items-center gap-2 rounded-sm border border-red-500/40 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              title={
+                group.in_config
+                  ? 'This group is defined in the config file. Remove it from the config and reload templates to enable deletion.'
+                  : 'Delete this group and all of its run information'
+              }
             >
               <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

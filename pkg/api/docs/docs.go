@@ -352,7 +352,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Group"
+                            "$ref": "#/definitions/pkg_api.GroupResponse"
                         }
                     },
                     "401": {
@@ -381,7 +381,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Deletes a group along with all of its job templates, queued jobs and run history (requires admin). The group must no longer be present in the config file.",
+                "description": "Deletes a group along with all of its job templates and run history (requires admin). The group must no longer be present in the active configuration (remove it from the config file and reload templates or restart first) and must have no pending, triggered or running jobs.",
                 "tags": [
                     "groups"
                 ],
@@ -2118,6 +2118,42 @@ const docTemplate = `{
                 }
             }
         },
+        "pkg_api.GroupResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "in_config": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "name": {
+                    "type": "string"
+                },
+                "paused": {
+                    "type": "boolean"
+                },
+                "runner_labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "pkg_api.GroupWithStats": {
             "type": "object",
             "properties": {
@@ -2140,6 +2176,10 @@ const docTemplate = `{
                 "idle_runners": {
                     "type": "integer",
                     "example": 3
+                },
+                "in_config": {
+                    "type": "boolean",
+                    "example": true
                 },
                 "name": {
                     "type": "string"

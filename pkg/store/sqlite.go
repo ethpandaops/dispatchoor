@@ -244,18 +244,26 @@ func (s *SQLiteStore) migrateJobsTemplateIdNullable(ctx context.Context) error {
 		return nil
 	}
 
-	// Need to recreate table. Disable foreign keys for this operation.
-	if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+	// Need to recreate table. Disable foreign keys for this operation, pinning
+	// a single connection so the pragma cannot land on (and poison) a pooled
+	// connection different from the one running the statements below.
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
 		return fmt.Errorf("disabling foreign keys: %w", err)
 	}
 
-	// Re-enable foreign keys when done (deferred).
+	// Re-enable foreign keys on the same connection when done (deferred).
 	defer func() {
-		_, _ = s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+		_, _ = conn.ExecContext(ctx, "PRAGMA foreign_keys=ON")
 	}()
 
 	// Create new table with nullable template_id.
-	_, err = s.db.ExecContext(ctx, `
+	_, err = conn.ExecContext(ctx, `
 		CREATE TABLE jobs_new (
 			id TEXT PRIMARY KEY,
 			group_id TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
@@ -291,7 +299,7 @@ func (s *SQLiteStore) migrateJobsTemplateIdNullable(ctx context.Context) error {
 	}
 
 	// Copy data.
-	_, err = s.db.ExecContext(ctx, `
+	_, err = conn.ExecContext(ctx, `
 		INSERT INTO jobs_new
 		SELECT id, group_id, template_id, priority, position, status, inputs, created_by,
 			   triggered_at, run_id, run_url, runner_name, completed_at, error_message, created_at, updated_at,
@@ -303,12 +311,12 @@ func (s *SQLiteStore) migrateJobsTemplateIdNullable(ctx context.Context) error {
 	}
 
 	// Drop old table.
-	if _, err := s.db.ExecContext(ctx, "DROP TABLE jobs"); err != nil {
+	if _, err := conn.ExecContext(ctx, "DROP TABLE jobs"); err != nil {
 		return fmt.Errorf("dropping old jobs table: %w", err)
 	}
 
 	// Rename new table.
-	if _, err := s.db.ExecContext(ctx, "ALTER TABLE jobs_new RENAME TO jobs"); err != nil {
+	if _, err := conn.ExecContext(ctx, "ALTER TABLE jobs_new RENAME TO jobs"); err != nil {
 		return fmt.Errorf("renaming jobs table: %w", err)
 	}
 
@@ -320,7 +328,7 @@ func (s *SQLiteStore) migrateJobsTemplateIdNullable(ctx context.Context) error {
 	}
 
 	for _, idx := range indexes {
-		if _, err := s.db.ExecContext(ctx, idx); err != nil {
+		if _, err := conn.ExecContext(ctx, idx); err != nil {
 			return fmt.Errorf("creating index: %w", err)
 		}
 	}

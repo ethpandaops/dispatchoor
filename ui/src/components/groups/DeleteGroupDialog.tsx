@@ -52,8 +52,9 @@ export function DeleteGroupDialog({ group, isOpen, onClose, onDeleted }: DeleteG
             <span className="font-semibold text-zinc-100">{group.name}</span>?
           </p>
           <div className="rounded-sm border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
-            This permanently deletes the group along with all of its job templates, queued
-            jobs and run history. This action cannot be undone.
+            This permanently deletes the group along with all of its job templates and run
+            history. This action cannot be undone. Groups with pending or running jobs
+            cannot be deleted.
           </div>
           {deleteMutation.isError && (
             <div className="rounded-sm border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">

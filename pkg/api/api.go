@@ -36,6 +36,7 @@ type server struct {
 	log            logrus.FieldLogger
 	cfg            *config.Config
 	cfgMu          sync.RWMutex
+	groupsMu       sync.Mutex // Serializes group deletion against config reloads.
 	configPath     string
 	store          store.Store
 	queue          queue.Service
@@ -329,12 +330,33 @@ type ErrorResponse struct {
 // GroupWithStats is a group with additional statistics.
 type GroupWithStats struct {
 	*store.Group
-	QueuedJobs    int `json:"queued_jobs" example:"5"`
-	RunningJobs   int `json:"running_jobs" example:"2"`
-	IdleRunners   int `json:"idle_runners" example:"3"`
-	BusyRunners   int `json:"busy_runners" example:"2"`
-	TotalRunners  int `json:"total_runners" example:"5"`
-	TemplateCount int `json:"template_count" example:"10"`
+	QueuedJobs    int  `json:"queued_jobs" example:"5"`
+	RunningJobs   int  `json:"running_jobs" example:"2"`
+	IdleRunners   int  `json:"idle_runners" example:"3"`
+	BusyRunners   int  `json:"busy_runners" example:"2"`
+	TotalRunners  int  `json:"total_runners" example:"5"`
+	TemplateCount int  `json:"template_count" example:"10"`
+	InConfig      bool `json:"in_config" example:"true"`
+}
+
+// GroupResponse is a group with config-membership information.
+type GroupResponse struct {
+	*store.Group
+	InConfig bool `json:"in_config" example:"true"`
+}
+
+// groupInConfig reports whether the group is defined in the active configuration.
+func (s *server) groupInConfig(id string) bool {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+
+	for _, groupCfg := range s.cfg.Groups.GitHub {
+		if groupCfg.ID == id {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *server) writeJSON(w http.ResponseWriter, status int, data any) {
@@ -554,7 +576,7 @@ func (s *server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 	result := make([]GroupWithStats, 0, len(groups))
 
 	for _, group := range groups {
-		stats := GroupWithStats{Group: group}
+		stats := GroupWithStats{Group: group, InConfig: s.groupInConfig(group.ID)}
 
 		// Get job counts.
 		pendingJobs, err := s.store.ListJobsByGroup(r.Context(), group.ID, store.JobStatusPending)
@@ -601,7 +623,7 @@ func (s *server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 //	@Security		BearerAuth
 //	@Produce		json
 //	@Param			id	path		string	true	"Group ID"
-//	@Success		200	{object}	store.Group
+//	@Success		200	{object}	GroupResponse
 //	@Failure		401	{object}	ErrorResponse
 //	@Failure		404	{object}	ErrorResponse
 //	@Failure		500	{object}	ErrorResponse
@@ -623,7 +645,7 @@ func (s *server) handleGetGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeJSON(w, http.StatusOK, group)
+	s.writeJSON(w, http.StatusOK, GroupResponse{Group: group, InConfig: s.groupInConfig(id)})
 }
 
 // handlePauseGroup godoc
@@ -717,7 +739,7 @@ func (s *server) handleUnpauseGroup(w http.ResponseWriter, r *http.Request) {
 // handleDeleteGroup godoc
 //
 //	@Summary		Delete group
-//	@Description	Deletes a group along with all of its job templates, queued jobs and run history (requires admin). The group must no longer be present in the config file.
+//	@Description	Deletes a group along with all of its job templates and run history (requires admin). The group must no longer be present in the active configuration (remove it from the config file and reload templates or restart first) and must have no pending, triggered or running jobs.
 //	@Tags			groups
 //	@Security		BearerAuth
 //	@Param			id	path	string	true	"Group ID"
@@ -730,6 +752,11 @@ func (s *server) handleUnpauseGroup(w http.ResponseWriter, r *http.Request) {
 //	@Router			/groups/{id} [delete]
 func (s *server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
+	// Serialize with config reloads so the config-membership check below cannot
+	// race a concurrent sync recreating the group.
+	s.groupsMu.Lock()
+	defer s.groupsMu.Unlock()
 
 	group, err := s.store.GetGroup(r.Context(), id)
 	if err != nil {
@@ -745,23 +772,32 @@ func (s *server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Refuse to delete groups that are still defined in the config file:
+	// Refuse to delete groups that are still defined in the active configuration:
 	// the next config sync would simply recreate them.
-	s.cfgMu.RLock()
-	inConfig := false
-
-	for _, groupCfg := range s.cfg.Groups.GitHub {
-		if groupCfg.ID == id {
-			inConfig = true
-
-			break
-		}
-	}
-	s.cfgMu.RUnlock()
-
-	if inConfig {
+	if s.groupInConfig(id) {
 		s.writeError(w, http.StatusConflict,
-			"Group is still defined in the config file; remove it from the config first")
+			"Group is still defined in the active configuration; remove it from the "+
+				"config file and reload templates (or restart) before deleting")
+
+		return
+	}
+
+	// Refuse to delete groups with active jobs: cascade-deleting a triggered or
+	// running job would abandon its live GitHub workflow run untracked and
+	// uncancelled, and its run ID would leave the dispatcher's claimed set.
+	activeJobs, err := s.store.ListJobsByGroup(r.Context(), id,
+		store.JobStatusPending, store.JobStatusTriggered, store.JobStatusRunning)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list group jobs")
+		s.writeError(w, http.StatusInternalServerError, "Failed to list group jobs")
+
+		return
+	}
+
+	if len(activeJobs) > 0 {
+		s.writeError(w, http.StatusConflict,
+			fmt.Sprintf("Group has %d pending or running job(s); cancel or remove them before deleting",
+				len(activeJobs)))
 
 		return
 	}
@@ -2334,6 +2370,11 @@ type ReloadTemplatesGroupStats struct {
 //	@Router			/templates/reload [post]
 func (s *server) handleReloadTemplates(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("Reloading templates from config")
+
+	// Serialize with group deletion so a delete cannot interleave with the
+	// config sync below.
+	s.groupsMu.Lock()
+	defer s.groupsMu.Unlock()
 
 	// Re-read config file to pick up updated template files and URLs.
 	newCfg, err := config.Load(s.configPath)
