@@ -38,6 +38,9 @@ export function Sidebar() {
   const { sidebarCollapsed, mobileNavOpen, setMobileNavOpen } = useUIStore();
   const { data: groups, isLoading } = useGroups();
 
+  const sections = groupByCategory(groups ?? []);
+  const showCategories = shouldShowCategories(sections);
+
   // Close the mobile drawer after a navigation. Harmless on desktop (already closed).
   const closeMobileNav = () => setMobileNavOpen(false);
 
@@ -84,11 +87,11 @@ export function Sidebar() {
             <div className="mt-2 space-y-1">
               {isLoading ? (
                 <div className="px-3 py-2 text-sm text-zinc-500">Loading...</div>
-              ) : groups && groups.length > 0 ? (
-                groupByCategory(groups).map((section, index, sections) => (
+              ) : sections.length > 0 ? (
+                sections.map((section, index) => (
                   <div key={section.category} className={index > 0 ? 'mt-3' : undefined}>
-                    {shouldShowCategories(sections) && (
-                      <h4 className="px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+                    {showCategories && (
+                      <h4 className="px-3 py-1 text-xs font-medium uppercase tracking-wider text-zinc-600">
                         {section.category}
                       </h4>
                     )}
