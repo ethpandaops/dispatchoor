@@ -663,6 +663,90 @@ func TestHandleDeleteGroup(t *testing.T) {
 	}
 }
 
+func TestSyncGroupsFromConfigCategories(t *testing.T) {
+	ctx := context.Background()
+	log := logrus.New()
+	log.SetOutput(os.Stderr)
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	groups := []map[string]any{
+		{
+			"id":            "group-categorized",
+			"name":          "Categorized Group",
+			"category":      "Sync Tests",
+			"runner_labels": []string{"self-hosted"},
+		},
+		{
+			"id":            "group-uncategorized",
+			"name":          "Uncategorized Group",
+			"runner_labels": []string{"self-hosted"},
+		},
+	}
+	cfgPath := writeTestConfigWithGroups(t, tmpDir, dbPath, groups)
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	st := store.NewSQLiteStore(log, dbPath)
+	if err := st.Start(ctx); err != nil {
+		t.Fatalf("Failed to start store: %v", err)
+	}
+	defer func() { _ = st.Stop() }()
+
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("Failed to migrate: %v", err)
+	}
+
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+		t.Fatalf("Failed to sync groups: %v", err)
+	}
+
+	categorized, err := st.GetGroup(ctx, "group-categorized")
+	if err != nil {
+		t.Fatalf("Failed to get group: %v", err)
+	}
+
+	if categorized.Category != "Sync Tests" {
+		t.Errorf("Expected category 'Sync Tests', got '%s'", categorized.Category)
+	}
+
+	uncategorized, err := st.GetGroup(ctx, "group-uncategorized")
+	if err != nil {
+		t.Fatalf("Failed to get group: %v", err)
+	}
+
+	if uncategorized.Category != config.DefaultGroupCategory {
+		t.Errorf("Expected default category '%s', got '%s'",
+			config.DefaultGroupCategory, uncategorized.Category)
+	}
+
+	// A category change in the config must propagate on re-sync.
+	groups[0]["category"] = "Perf Tests"
+	cfgPath = writeTestConfigWithGroups(t, tmpDir, dbPath, groups)
+
+	cfg, err = config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to reload config: %v", err)
+	}
+
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+		t.Fatalf("Failed to re-sync groups: %v", err)
+	}
+
+	categorized, err = st.GetGroup(ctx, "group-categorized")
+	if err != nil {
+		t.Fatalf("Failed to get group: %v", err)
+	}
+
+	if categorized.Category != "Perf Tests" {
+		t.Errorf("Expected updated category 'Perf Tests', got '%s'", categorized.Category)
+	}
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }

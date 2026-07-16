@@ -26,6 +26,7 @@ import { JobCard } from '../components/jobs/JobCard';
 import { AddJobDialog } from '../components/jobs/AddJobDialog';
 import { AddManualJobDialog } from '../components/jobs/AddManualJobDialog';
 import { DeleteGroupDialog } from '../components/groups/DeleteGroupDialog';
+import { DEFAULT_CATEGORY } from '../utils/groupCategories';
 import { LabelsDisplay } from '../components/common/LabelBadge';
 import { HistoryChart } from '../components/charts/HistoryChart';
 import type { Job, JobTemplate, Runner } from '../types';
@@ -870,6 +871,11 @@ export function GroupPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-zinc-100">{group.name}</h1>
+            {group.category && group.category !== DEFAULT_CATEGORY && (
+              <span className="rounded-sm bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
+                {group.category}
+              </span>
+            )}
             {group.paused && (
               <span className="rounded-sm bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-400">
                 Paused

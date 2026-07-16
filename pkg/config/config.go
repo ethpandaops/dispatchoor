@@ -122,11 +122,15 @@ type GroupsConfig struct {
 	GitHub []Group `yaml:"github"`
 }
 
+// DefaultGroupCategory is the category assigned to groups without an explicit one.
+const DefaultGroupCategory = "Global"
+
 // Group represents a runner pool and its associated workflow dispatch jobs.
 type Group struct {
 	ID                             string                     `yaml:"id"`
 	Name                           string                     `yaml:"name"`
 	Description                    string                     `yaml:"description"`
+	Category                       string                     `yaml:"category"`
 	RunnerLabels                   []string                   `yaml:"runner_labels"`
 	WorkflowDispatchTemplates      []WorkflowDispatchTemplate `yaml:"workflow_dispatch_templates"`
 	WorkflowDispatchTemplatesFiles []string                   `yaml:"workflow_dispatch_templates_files"`
@@ -327,6 +331,12 @@ func expandEnvVars(s string) string {
 func applyDefaults(cfg *Config) {
 	if cfg.Server.Listen == "" {
 		cfg.Server.Listen = ":9090"
+	}
+
+	for i := range cfg.Groups.GitHub {
+		if cfg.Groups.GitHub[i].Category == "" {
+			cfg.Groups.GitHub[i].Category = DefaultGroupCategory
+		}
 	}
 
 	if cfg.Database.Driver == "" {

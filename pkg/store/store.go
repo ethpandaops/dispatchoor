@@ -96,6 +96,7 @@ type Group struct {
 	ID           string    `json:"id"`
 	Name         string    `json:"name"`
 	Description  string    `json:"description"`
+	Category     string    `json:"category"`
 	RunnerLabels []string  `json:"runner_labels"`
 	Enabled      bool      `json:"enabled"`
 	Paused       bool      `json:"paused"`

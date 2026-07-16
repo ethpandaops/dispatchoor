@@ -1713,6 +1713,9 @@
         "github_com_ethpandaops_dispatchoor_pkg_store.Group": {
             "type": "object",
             "properties": {
+                "category": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -2115,6 +2118,9 @@
         "pkg_api.GroupResponse": {
             "type": "object",
             "properties": {
+                "category": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -2154,6 +2160,9 @@
                 "busy_runners": {
                     "type": "integer",
                     "example": 2
+                },
+                "category": {
+                    "type": "string"
                 },
                 "created_at": {
                     "type": "string"
