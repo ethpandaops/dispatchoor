@@ -283,6 +283,30 @@ definitions:
       runners:
         $ref: '#/definitions/pkg_api.GitHubClientStatus'
     type: object
+  pkg_api.GroupResponse:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: string
+      in_config:
+        example: true
+        type: boolean
+      name:
+        type: string
+      paused:
+        type: boolean
+      runner_labels:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+    type: object
   pkg_api.GroupWithStats:
     properties:
       busy_runners:
@@ -299,6 +323,9 @@ definitions:
       idle_runners:
         example: 3
         type: integer
+      in_config:
+        example: true
+        type: boolean
       name:
         type: string
       paused:
@@ -755,6 +782,45 @@ paths:
       tags:
       - groups
   /groups/{id}:
+    delete:
+      description: Deletes a group along with all of its job templates and run history
+        (requires admin). The group must no longer be present in the active configuration
+        (remove it from the config file and reload templates or restart first) and
+        must have no pending, triggered or running jobs.
+      parameters:
+      - description: Group ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Group deleted successfully
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete group
+      tags:
+      - groups
     get:
       description: Returns a single group by ID
       parameters:
@@ -769,7 +835,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.Group'
+            $ref: '#/definitions/pkg_api.GroupResponse'
         "401":
           description: Unauthorized
           schema:

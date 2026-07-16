@@ -140,6 +140,10 @@ class ApiClient {
     return this.request<Group>(`/groups/${id}/unpause`, { method: 'POST' });
   }
 
+  async deleteGroup(id: string): Promise<void> {
+    await this.request<void>(`/groups/${id}`, { method: 'DELETE' });
+  }
+
   // Job Templates
   async getJobTemplates(groupId: string): Promise<JobTemplate[]> {
     return this.request<JobTemplate[]>(`/groups/${groupId}/templates`);

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
@@ -25,6 +25,7 @@ import { useAuthStore } from '../stores/authStore';
 import { JobCard } from '../components/jobs/JobCard';
 import { AddJobDialog } from '../components/jobs/AddJobDialog';
 import { AddManualJobDialog } from '../components/jobs/AddManualJobDialog';
+import { DeleteGroupDialog } from '../components/groups/DeleteGroupDialog';
 import { LabelsDisplay } from '../components/common/LabelBadge';
 import { HistoryChart } from '../components/charts/HistoryChart';
 import type { Job, JobTemplate, Runner } from '../types';
@@ -112,10 +113,12 @@ const validHistoryViews: HistoryViewType[] = ['linear', 'grouped'];
 export function GroupPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const isAdmin = user?.role === 'admin';
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showManualJobDialog, setShowManualJobDialog] = useState(false);
   const [showAddJobDropdown, setShowAddJobDropdown] = useState(false);
   const [preselectedTemplateId, setPreselectedTemplateId] = useState<string | undefined>();
@@ -963,6 +966,21 @@ export function GroupPage() {
                 </>
               )}
             </div>
+            <button
+              onClick={() => setShowDeleteDialog(true)}
+              disabled={group.in_config}
+              className="flex items-center gap-2 rounded-sm border border-red-500/40 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              title={
+                group.in_config
+                  ? 'This group is defined in the config file. Remove it from the config and reload templates to enable deletion.'
+                  : 'Delete this group and all of its run information'
+              }
+            >
+              <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Delete Group
+            </button>
           </div>
         )}
       </div>
@@ -1786,6 +1804,17 @@ export function GroupPage() {
         templates={templates.filter((t) => t.in_config)}
         isOpen={showManualJobDialog}
         onClose={() => setShowManualJobDialog(false)}
+      />
+
+      {/* Delete Group Dialog */}
+      <DeleteGroupDialog
+        group={group}
+        isOpen={showDeleteDialog}
+        onClose={() => setShowDeleteDialog(false)}
+        onDeleted={() => {
+          queryClient.invalidateQueries({ queryKey: ['groups'] });
+          navigate('/');
+        }}
       />
 
       {/* Bulk Action Bars */}

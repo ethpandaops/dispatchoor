@@ -252,6 +252,7 @@ const (
 	AuditActionUserLogin    AuditAction = "user_login"
 	AuditActionUserLogout   AuditAction = "user_logout"
 	AuditActionConfigReload AuditAction = "config_reload"
+	AuditActionGroupDeleted AuditAction = "group_deleted"
 )
 
 // AuditEntityType represents the type of entity being audited.
