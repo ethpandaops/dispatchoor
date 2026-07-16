@@ -2215,6 +2215,7 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 			ID:           groupCfg.ID,
 			Name:         groupCfg.Name,
 			Description:  groupCfg.Description,
+			Category:     groupCfg.Category,
 			RunnerLabels: groupCfg.RunnerLabels,
 			Enabled:      true,
 			CreatedAt:    now,

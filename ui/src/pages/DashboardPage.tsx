@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useGroups } from '../hooks/useGroups';
 import { MiniHistoryChart } from '../components/charts/MiniHistoryChart';
+import { groupByCategory, shouldShowCategories } from '../utils/groupCategories';
 import type { GroupWithStats } from '../types';
 
 function GroupCard({ group }: { group: GroupWithStats }) {
@@ -75,6 +76,9 @@ function GroupCard({ group }: { group: GroupWithStats }) {
 export function DashboardPage() {
   const { data: groups, isLoading, error } = useGroups();
 
+  const sections = groupByCategory(groups ?? []);
+  const showCategories = shouldShowCategories(sections);
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-zinc-100">Dashboard</h1>
@@ -95,9 +99,23 @@ export function DashboardPage() {
           ))}
         </div>
       ) : groups && groups.length > 0 ? (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {groups.map((group) => (
-            <GroupCard key={group.id} group={group} />
+        <div className="space-y-8">
+          {sections.map((section) => (
+            <section key={section.category}>
+              {showCategories && (
+                <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-zinc-400">
+                  {section.category}
+                  <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-medium normal-case tracking-normal text-zinc-500">
+                    {section.groups.length}
+                  </span>
+                </h2>
+              )}
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {section.groups.map((group) => (
+                  <GroupCard key={group.id} group={group} />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       ) : (

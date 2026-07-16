@@ -10,6 +10,8 @@ definitions:
     - AuthProviderGitHub
   github_com_ethpandaops_dispatchoor_pkg_store.Group:
     properties:
+      category:
+        type: string
       created_at:
         type: string
       description:
@@ -285,6 +287,8 @@ definitions:
     type: object
   pkg_api.GroupResponse:
     properties:
+      category:
+        type: string
       created_at:
         type: string
       description:
@@ -312,6 +316,8 @@ definitions:
       busy_runners:
         example: 2
         type: integer
+      category:
+        type: string
       created_at:
         type: string
       description:

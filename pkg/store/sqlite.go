@@ -204,6 +204,8 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 		// Migration: Add source_type and source_path columns to job_templates table.
 		`ALTER TABLE job_templates ADD COLUMN source_type TEXT NOT NULL DEFAULT 'inline'`,
 		`ALTER TABLE job_templates ADD COLUMN source_path TEXT NOT NULL DEFAULT ''`,
+		// Migration: Add category column to groups table.
+		`ALTER TABLE groups ADD COLUMN category TEXT NOT NULL DEFAULT 'Global'`,
 	}
 
 	for _, migration := range migrations {
@@ -348,9 +350,9 @@ func (s *SQLiteStore) CreateGroup(ctx context.Context, group *Group) error {
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO groups (id, name, description, runner_labels, enabled, paused, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, group.ID, group.Name, group.Description, string(labelsJSON),
+		INSERT INTO groups (id, name, description, category, runner_labels, enabled, paused, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, group.ID, group.Name, group.Description, group.Category, string(labelsJSON),
 		group.Enabled, group.Paused, group.CreatedAt, group.UpdatedAt)
 
 	if err != nil {
@@ -369,9 +371,9 @@ func (s *SQLiteStore) GetGroup(ctx context.Context, id string) (*Group, error) {
 	var enabled, paused int
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, description, runner_labels, enabled, paused, created_at, updated_at
+		SELECT id, name, description, category, runner_labels, enabled, paused, created_at, updated_at
 		FROM groups WHERE id = ?
-	`, id).Scan(&group.ID, &group.Name, &group.Description, &labelsJSON,
+	`, id).Scan(&group.ID, &group.Name, &group.Description, &group.Category, &labelsJSON,
 		&enabled, &paused, &group.CreatedAt, &group.UpdatedAt)
 
 	if err == sql.ErrNoRows {
@@ -395,7 +397,7 @@ func (s *SQLiteStore) GetGroup(ctx context.Context, id string) (*Group, error) {
 // ListGroups retrieves all groups.
 func (s *SQLiteStore) ListGroups(ctx context.Context) ([]*Group, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, description, runner_labels, enabled, paused, created_at, updated_at
+		SELECT id, name, description, category, runner_labels, enabled, paused, created_at, updated_at
 		FROM groups ORDER BY name
 	`)
 	if err != nil {
@@ -413,7 +415,7 @@ func (s *SQLiteStore) ListGroups(ctx context.Context) ([]*Group, error) {
 
 		var enabled, paused int
 
-		if err := rows.Scan(&group.ID, &group.Name, &group.Description, &labelsJSON,
+		if err := rows.Scan(&group.ID, &group.Name, &group.Description, &group.Category, &labelsJSON,
 			&enabled, &paused, &group.CreatedAt, &group.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scanning group: %w", err)
 		}
@@ -440,9 +442,10 @@ func (s *SQLiteStore) UpdateGroup(ctx context.Context, group *Group) error {
 	group.UpdatedAt = time.Now()
 
 	_, err = s.db.ExecContext(ctx, `
-		UPDATE groups SET name = ?, description = ?, runner_labels = ?, enabled = ?, paused = ?, updated_at = ?
+		UPDATE groups SET name = ?, description = ?, category = ?, runner_labels = ?, enabled = ?, paused = ?, updated_at = ?
 		WHERE id = ?
-	`, group.Name, group.Description, string(labelsJSON), group.Enabled, group.Paused, group.UpdatedAt, group.ID)
+	`, group.Name, group.Description, group.Category, string(labelsJSON),
+		group.Enabled, group.Paused, group.UpdatedAt, group.ID)
 
 	if err != nil {
 		return fmt.Errorf("updating group: %w", err)

@@ -1719,6 +1719,9 @@ const docTemplate = `{
         "github_com_ethpandaops_dispatchoor_pkg_store.Group": {
             "type": "object",
             "properties": {
+                "category": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -2121,6 +2124,9 @@ const docTemplate = `{
         "pkg_api.GroupResponse": {
             "type": "object",
             "properties": {
+                "category": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
@@ -2160,6 +2166,9 @@ const docTemplate = `{
                 "busy_runners": {
                     "type": "integer",
                     "example": 2
+                },
+                "category": {
+                    "type": "string"
                 },
                 "created_at": {
                     "type": "string"
