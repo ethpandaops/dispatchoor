@@ -351,7 +351,7 @@ Full API documentation is available in [OpenAPI/Swagger format](pkg/api/docs/swa
 | GET | `/api/v1/jobs/{id}` | User | Get job details |
 | PUT | `/api/v1/jobs/{id}` | Admin | Update job fields |
 | DELETE | `/api/v1/jobs/{id}` | Admin | Delete pending job |
-| POST | `/api/v1/jobs/{id}/pause` | Admin | Pause job dispatching |
+| POST | `/api/v1/jobs/{id}/pause` | Admin | Pause a job (a running auto-requeue job pauses after the run) |
 | POST | `/api/v1/jobs/{id}/unpause` | Admin | Resume job dispatching |
 | POST | `/api/v1/jobs/{id}/cancel` | Admin | Cancel triggered/running job |
 | PUT | `/api/v1/jobs/{id}/auto-requeue` | Admin | Update auto-requeue settings |

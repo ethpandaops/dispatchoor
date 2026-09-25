@@ -1200,7 +1200,7 @@ func (s *server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 // handlePauseJob godoc
 //
 //	@Summary		Pause job
-//	@Description	Pauses a job in the queue (requires admin)
+//	@Description	Pauses a job (requires admin). A pending job stays in the queue until a user resumes it. A triggered or running job runs to the end, then requeues in the paused state, so it needs auto-requeue.
 //	@Tags			jobs
 //	@Security		BearerAuth
 //	@Produce		json
@@ -1228,7 +1228,7 @@ func (s *server) handlePauseJob(w http.ResponseWriter, r *http.Request) {
 // handleUnpauseJob godoc
 //
 //	@Summary		Unpause job
-//	@Description	Resumes a paused job (requires admin)
+//	@Description	Resumes a paused job (requires admin). Works on pending jobs, and on auto-requeue jobs that are triggered or running.
 //	@Tags			jobs
 //	@Security		BearerAuth
 //	@Produce		json

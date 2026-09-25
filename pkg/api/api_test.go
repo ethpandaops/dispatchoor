@@ -46,6 +46,7 @@ func (q *stubQueue) ListHistoryPaginated(context.Context, store.HistoryQueryOpts
 	return nil, nil
 }
 func (q *stubQueue) MarkTriggered(context.Context, string, int64, string) error { return nil }
+func (q *stubQueue) SetRunInfo(context.Context, string, int64, string) error    { return nil }
 func (q *stubQueue) MarkRunning(context.Context, string, int64, string) error   { return nil }
 func (q *stubQueue) MarkCompleted(context.Context, string) error                { return nil }
 func (q *stubQueue) MarkFailed(context.Context, string, string) error           { return nil }

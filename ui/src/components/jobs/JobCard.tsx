@@ -217,6 +217,12 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
   // Build the action list once, then render it two ways: inline icon buttons on
   // wide cards (@md+), and a labelled overflow menu on narrow cards.
   const isActive = job.status === 'triggered' || job.status === 'running';
+  // A pending job pauses in place. An active job keeps running and its
+  // auto-requeued copy starts paused, so it needs auto-requeue.
+  const canTogglePause = isAdmin && (job.status === 'pending' || (isActive && job.auto_requeue));
+  // Only a pending job sits in the paused state. An active job still runs.
+  const showPausedStatus = job.paused && job.status === 'pending';
+  const pausesAfterRun = job.paused && isActive;
   const requeueBusy = toggleRequeueMutation.isPending || disableRequeueMutation.isPending;
   const handleRequeueToggle = () => {
     if (job.auto_requeue) {
@@ -304,10 +310,10 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
       ),
     });
   }
-  if (isAdmin && job.status === 'pending' && !job.paused) {
+  if (canTogglePause && !job.paused) {
     actions.push({
       key: 'pause',
-      label: 'Pause job',
+      label: isActive ? 'Pause after this run' : 'Pause job',
       disabled: pauseMutation.isPending,
       onClick: () => pauseMutation.mutate(),
       icon: (
@@ -317,10 +323,10 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
       ),
     });
   }
-  if (isAdmin && job.status === 'pending' && job.paused) {
+  if (canTogglePause && job.paused) {
     actions.push({
       key: 'resume',
-      label: 'Resume job',
+      label: isActive ? 'Cancel pause' : 'Resume job',
       tone: 'green',
       disabled: unpauseMutation.isPending,
       onClick: () => unpauseMutation.mutate(),
@@ -381,9 +387,9 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
         <div className="flex-1 min-w-0">
           {/* Header */}
           <div className="flex flex-wrap items-center gap-2 mb-2">
-            <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${job.paused ? 'bg-zinc-500/10 text-zinc-400' : colors.bg + ' ' + colors.text}`}>
-              <span className={`size-1.5 rounded-full ${job.paused ? 'bg-zinc-400' : colors.dot}`} />
-              {job.paused ? 'paused' : job.status}
+            <span className={`inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${showPausedStatus ? 'bg-zinc-500/10 text-zinc-400' : colors.bg + ' ' + colors.text}`}>
+              <span className={`size-1.5 rounded-full ${showPausedStatus ? 'bg-zinc-400' : colors.dot}`} />
+              {showPausedStatus ? 'paused' : job.status}
             </span>
             <span className="text-xs text-zinc-500">#{job.position}</span>
             {isManualJob && (
@@ -402,6 +408,14 @@ export function JobCard({ job, template, isDragging, dragHandleProps }: JobCardP
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
                 {getRequeueCountDisplay()}
+              </span>
+            )}
+            {pausesAfterRun && (
+              <span className="inline-flex items-center gap-1 rounded-sm bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400" title="This job pauses in the queue after the current run finishes">
+                <svg className="size-3" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                </svg>
+                pause after run
               </span>
             )}
           </div>

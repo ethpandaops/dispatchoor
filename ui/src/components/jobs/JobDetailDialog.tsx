@@ -214,6 +214,11 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
   const effectiveWorkflowId = getEffectiveValue('workflowId');
   const effectiveRef = getEffectiveValue('ref');
 
+  // Only a pending job sits in the paused state. An active job still runs and
+  // pauses when auto-requeue puts it back in the queue.
+  const showPausedStatus = job.paused && job.status === 'pending';
+  const pausesAfterRun = job.paused && (job.status === 'triggered' || job.status === 'running');
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
@@ -224,10 +229,18 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
         {/* Header */}
         <div className="flex items-start justify-between gap-2 border-b border-zinc-800 px-4 py-3 shrink-0">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${job.paused ? 'bg-zinc-500/10 text-zinc-400' : colors.bg + ' ' + colors.text}`}>
-              <span className={`size-1.5 rounded-full ${job.paused ? 'bg-zinc-400' : colors.dot}`} />
-              {job.paused ? 'paused' : job.status}
+            <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium ${showPausedStatus ? 'bg-zinc-500/10 text-zinc-400' : colors.bg + ' ' + colors.text}`}>
+              <span className={`size-1.5 rounded-full ${showPausedStatus ? 'bg-zinc-400' : colors.dot}`} />
+              {showPausedStatus ? 'paused' : job.status}
             </span>
+            {pausesAfterRun && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400" title="This job pauses in the queue after the current run finishes">
+                <svg className="size-3" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                </svg>
+                pause after run
+              </span>
+            )}
             <h2 className="min-w-0 break-words text-lg font-semibold text-zinc-100">
               {job.name ?? template?.name ?? job.template_id}
             </h2>
@@ -483,6 +496,9 @@ export function JobDetailDialog({ job, template, isOpen, onClose }: JobDetailDia
                 {job.requeue_limit !== null && ` (limit: ${job.requeue_limit})`}
                 {job.requeue_count > 0 && ` - ${job.requeue_count} requeue${job.requeue_count > 1 ? 's' : ''} so far`}
               </div>
+              {pausesAfterRun && (
+                <div className="text-sm text-amber-300">Paused: the requeued job waits in the queue.</div>
+              )}
             </div>
           )}
 
