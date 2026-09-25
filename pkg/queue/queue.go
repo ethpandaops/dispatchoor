@@ -60,6 +60,7 @@ type Service interface {
 
 	// State transitions.
 	MarkTriggered(ctx context.Context, jobID string, runID int64, runURL string) error
+	SetRunInfo(ctx context.Context, jobID string, runID int64, runURL string) error
 	MarkRunning(ctx context.Context, jobID string, runnerID int64, runnerName string) error
 	MarkCompleted(ctx context.Context, jobID string) error
 	MarkFailed(ctx context.Context, jobID, errMsg string) error
@@ -447,6 +448,41 @@ func (s *service) MarkTriggered(ctx context.Context, jobID string, runID int64, 
 		"job_id": jobID,
 		"run_id": runID,
 	}).Info("Job marked as triggered")
+
+	s.notifyJobChange(job)
+
+	return nil
+}
+
+// SetRunInfo records the GitHub run that a job maps to.
+// The dispatcher finds the run ID after the trigger, so it arrives later.
+// This reads the job again under the lock, because a user can pause or change
+// the job while the dispatcher waits for GitHub.
+func (s *service) SetRunInfo(ctx context.Context, jobID string, runID int64, runURL string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	job, err := s.store.GetJob(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("getting job: %w", err)
+	}
+
+	if job == nil {
+		return fmt.Errorf("job not found: %s", jobID)
+	}
+
+	job.RunID = &runID
+	job.RunURL = runURL
+	job.UpdatedAt = time.Now()
+
+	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return fmt.Errorf("updating job: %w", err)
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"job_id": jobID,
+		"run_id": runID,
+	}).Debug("Job run info updated")
 
 	s.notifyJobChange(job)
 

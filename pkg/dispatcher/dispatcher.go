@@ -160,12 +160,14 @@ func (d *dispatcher) waitForRunID(
 
 		runID, runURL, err := d.findWorkflowRun(ctx, owner, repo, workflowID, job, claimedRunIDs)
 		if err == nil && runID != 0 {
-			job.RunID = &runID
-			job.RunURL = runURL
-
-			if err := d.store.UpdateJob(ctx, job); err != nil {
+			// Write through the queue service. It reads the job again, so this
+			// cannot overwrite a status or pause change made during the poll.
+			if err := d.queue.SetRunInfo(ctx, job.ID, runID, runURL); err != nil {
 				return fmt.Errorf("updating job with run ID: %w", err)
 			}
+
+			job.RunID = &runID
+			job.RunURL = runURL
 
 			log.WithFields(logrus.Fields{
 				"run_id":  runID,
@@ -502,15 +504,16 @@ func (d *dispatcher) trackJob(ctx context.Context, job *store.Job, claimedRunIDs
 			return nil
 		}
 
-		// Update the job with the run ID.
-		job.RunID = &runID
-		job.RunURL = runURL
-
-		if err := d.store.UpdateJob(ctx, job); err != nil {
+		// Update the job with the run ID. The queue service reads the job again,
+		// so this cannot overwrite a pause made while we queried GitHub.
+		if err := d.queue.SetRunInfo(ctx, job.ID, runID, runURL); err != nil {
 			workflowLock.Unlock()
 
 			return fmt.Errorf("updating job with run ID: %w", err)
 		}
+
+		job.RunID = &runID
+		job.RunURL = runURL
 
 		// Mark this run as claimed so other jobs in the same tracking cycle won't steal it.
 		claimedRunIDs[runID] = struct{}{}

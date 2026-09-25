@@ -275,3 +275,48 @@ func TestPauseCompletedJobFails(t *testing.T) {
 	_, err := svc.Pause(ctx, job.ID)
 	require.ErrorContains(t, err, "cannot pause job with status completed")
 }
+
+// TestSetRunInfoKeepsConcurrentChanges guards the dispatcher path. The
+// dispatcher triggers a job, then polls GitHub for up to 60 seconds to find the
+// run ID. A user can pause the job in that window. The run ID write must not
+// undo that pause, or the job requeues unpaused and the pause does nothing.
+func TestSetRunInfoKeepsConcurrentChanges(t *testing.T) {
+	ctx := context.Background()
+
+	svc, groupID := newTestService(t)
+
+	job := enqueueManualJob(t, svc, groupID, true)
+
+	// The dispatcher holds this snapshot from Peek for the whole dispatch.
+	snapshot, err := svc.Peek(ctx, groupID)
+	require.NoError(t, err)
+	require.Equal(t, job.ID, snapshot.ID)
+	require.Equal(t, store.JobStatusPending, snapshot.Status)
+	require.False(t, snapshot.Paused)
+
+	require.NoError(t, svc.MarkTriggered(ctx, job.ID, 0, ""))
+
+	// A user pauses the job while the dispatcher waits for GitHub.
+	_, err = svc.Pause(ctx, job.ID)
+	require.NoError(t, err)
+
+	// The dispatcher finds the run and records it.
+	const runID = int64(999)
+
+	require.NoError(t, svc.SetRunInfo(ctx, job.ID, runID, "https://example.com/run/999"))
+
+	updated, err := svc.GetJob(ctx, job.ID)
+	require.NoError(t, err)
+	require.True(t, updated.Paused, "the run ID write must not clear the pause")
+	require.Equal(t, store.JobStatusTriggered, updated.Status, "the run ID write must not undo the trigger")
+	require.NotNil(t, updated.TriggeredAt)
+	require.NotNil(t, updated.RunID)
+	require.Equal(t, runID, *updated.RunID)
+	require.Equal(t, "https://example.com/run/999", updated.RunURL)
+
+	// The pause therefore survives to the requeue.
+	require.NoError(t, svc.MarkCompleted(ctx, job.ID))
+
+	requeued := requeuedJob(t, svc, groupID, job.ID)
+	require.True(t, requeued.Paused)
+}
