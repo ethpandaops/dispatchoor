@@ -1343,7 +1343,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Pauses a job in the queue (requires admin)",
+                "description": "Pauses a job (requires admin). A pending job stays in the queue until a user resumes it. A triggered or running job runs to the end, then requeues in the paused state, so it needs auto-requeue.",
                 "produces": [
                     "application/json"
                 ],
@@ -1401,7 +1401,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Resumes a paused job (requires admin)",
+                "description": "Resumes a paused job (requires admin). Works on pending jobs, and on auto-requeue jobs that are triggered or running.",
                 "produces": [
                     "application/json"
                 ],

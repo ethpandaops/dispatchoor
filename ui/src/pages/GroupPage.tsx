@@ -740,6 +740,51 @@ export function GroupPage() {
     });
   };
 
+  const handleBulkPauseRunning = () => {
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Pause After Run',
+      message: `Pause ${selectedRunningIds.size} running job(s) after the current run?`,
+      warning: 'Each job runs to the end. Auto-requeue then puts it back in the queue in the paused state. Jobs without auto-requeue are skipped.',
+      buttonLabel: 'Pause After Run',
+      buttonClass: 'bg-amber-600 hover:bg-amber-700',
+      onConfirm: () => {
+        executeBulkAction(
+          selectedRunningIds,
+          (jobId) => api.pauseJob(jobId),
+          'Pausing jobs',
+          () => {
+            setSelectedRunningIds(new Set());
+            setRunningSelectionMode(false);
+            setBulkActionConfirm(null);
+          }
+        );
+      },
+    });
+  };
+
+  const handleBulkUnpauseRunning = () => {
+    setConfirmDuplicates(false);
+    setBulkActionConfirm({
+      title: 'Cancel Pause',
+      message: `Cancel the pause for ${selectedRunningIds.size} running job(s)?`,
+      buttonLabel: 'Cancel Pause',
+      buttonClass: 'bg-green-600 hover:bg-green-700',
+      onConfirm: () => {
+        executeBulkAction(
+          selectedRunningIds,
+          (jobId) => api.unpauseJob(jobId),
+          'Resuming jobs',
+          () => {
+            setSelectedRunningIds(new Set());
+            setRunningSelectionMode(false);
+            setBulkActionConfirm(null);
+          }
+        );
+      },
+    });
+  };
+
   // Pending jobs bulk actions
   const handleBulkPause = () => {
     setConfirmDuplicates(false);
@@ -1873,6 +1918,18 @@ export function GroupPage() {
             className="rounded-xs bg-zinc-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-500"
           >
             Disable Auto-requeue
+          </button>
+          <button
+            onClick={handleBulkPauseRunning}
+            className="rounded-xs bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+          >
+            Pause After Run
+          </button>
+          <button
+            onClick={handleBulkUnpauseRunning}
+            className="rounded-xs bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700"
+          >
+            Cancel Pause
           </button>
           <button
             onClick={() => {

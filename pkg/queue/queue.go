@@ -65,7 +65,8 @@ type Service interface {
 	MarkFailed(ctx context.Context, jobID, errMsg string) error
 	MarkCancelled(ctx context.Context, jobID string) error
 
-	// Pause/Unpause.
+	// Pause/Unpause. Works on pending jobs, and on auto-requeue jobs that are
+	// triggered or running.
 	Pause(ctx context.Context, jobID string) (*store.Job, error)
 	Unpause(ctx context.Context, jobID string) (*store.Job, error)
 
@@ -600,7 +601,28 @@ func (s *service) MarkCancelled(ctx context.Context, jobID string) error {
 	return nil
 }
 
-// Pause pauses a pending job so it won't be scheduled.
+// canTogglePause reports whether the pause flag of a job can change.
+// A pending job stays in the queue and the dispatcher skips it.
+// A triggered or running job continues to the end, but its auto-requeued copy
+// starts paused. A pause is thus only useful there if auto-requeue is on.
+func canTogglePause(job *store.Job) error {
+	switch job.Status {
+	case store.JobStatusPending:
+		return nil
+	case store.JobStatusTriggered, store.JobStatusRunning:
+		if !job.AutoRequeue {
+			return fmt.Errorf("cannot pause a %s job without auto-requeue", job.Status)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf("cannot pause job with status %s", job.Status)
+	}
+}
+
+// Pause pauses a job.
+// A pending job is not dispatched until a user resumes it.
+// A triggered or running job runs to the end, then requeues in the paused state.
 func (s *service) Pause(ctx context.Context, jobID string) (*store.Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -614,8 +636,8 @@ func (s *service) Pause(ctx context.Context, jobID string) (*store.Job, error) {
 		return nil, fmt.Errorf("job not found: %s", jobID)
 	}
 
-	if job.Status != store.JobStatusPending {
-		return nil, fmt.Errorf("cannot pause job with status %s", job.Status)
+	if err := canTogglePause(job); err != nil {
+		return nil, err
 	}
 
 	if job.Paused {
@@ -629,14 +651,19 @@ func (s *service) Pause(ctx context.Context, jobID string) (*store.Job, error) {
 		return nil, fmt.Errorf("updating job: %w", err)
 	}
 
-	s.log.WithField("job_id", jobID).Info("Job paused")
+	s.log.WithFields(logrus.Fields{
+		"job_id": jobID,
+		"status": job.Status,
+	}).Info("Job paused")
 
 	s.notifyJobChange(job)
 
 	return job, nil
 }
 
-// Unpause unpauses a paused job so it can be scheduled.
+// Unpause removes the pause from a job.
+// A pending job becomes available to the dispatcher again.
+// A triggered or running job requeues in the normal state.
 func (s *service) Unpause(ctx context.Context, jobID string) (*store.Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -650,8 +677,8 @@ func (s *service) Unpause(ctx context.Context, jobID string) (*store.Job, error)
 		return nil, fmt.Errorf("job not found: %s", jobID)
 	}
 
-	if job.Status != store.JobStatusPending {
-		return nil, fmt.Errorf("cannot unpause job with status %s", job.Status)
+	if err := canTogglePause(job); err != nil {
+		return nil, err
 	}
 
 	if !job.Paused {
@@ -665,7 +692,10 @@ func (s *service) Unpause(ctx context.Context, jobID string) (*store.Job, error)
 		return nil, fmt.Errorf("updating job: %w", err)
 	}
 
-	s.log.WithField("job_id", jobID).Info("Job unpaused")
+	s.log.WithFields(logrus.Fields{
+		"job_id": jobID,
+		"status": job.Status,
+	}).Info("Job unpaused")
 
 	s.notifyJobChange(job)
 
@@ -782,6 +812,11 @@ func (s *service) DisableAutoRequeue(ctx context.Context, jobID string) (*store.
 	}
 
 	job.AutoRequeue = false
+	// A pause on an active job only applies to the requeue, so drop it.
+	if job.Status != store.JobStatusPending {
+		job.Paused = false
+	}
+
 	job.UpdatedAt = time.Now()
 
 	if err := s.store.UpdateJob(ctx, job); err != nil {
@@ -815,6 +850,11 @@ func (s *service) UpdateAutoRequeue(ctx context.Context, jobID string, autoReque
 
 	job.AutoRequeue = autoRequeue
 	job.RequeueLimit = requeueLimit
+	// A pause on an active job only applies to the requeue, so drop it.
+	if !autoRequeue && job.Status != store.JobStatusPending {
+		job.Paused = false
+	}
+
 	job.UpdatedAt = time.Now()
 
 	if err := s.store.UpdateJob(ctx, job); err != nil {
@@ -866,7 +906,7 @@ func (s *service) maybeAutoRequeue(ctx context.Context, job *store.Job) {
 		Priority:     job.Priority,
 		Position:     maxPos + 1,
 		Status:       store.JobStatusPending,
-		Paused:       false, // New job starts unpaused.
+		Paused:       job.Paused, // A pause on the finished job carries over.
 		AutoRequeue:  true,
 		RequeueLimit: job.RequeueLimit,
 		RequeueCount: job.RequeueCount + 1,
@@ -893,6 +933,7 @@ func (s *service) maybeAutoRequeue(ctx context.Context, job *store.Job) {
 		"original_job_id": job.ID,
 		"new_job_id":      newJob.ID,
 		"requeue_count":   newJob.RequeueCount,
+		"paused":          newJob.Paused,
 	}).Info("Job auto-requeued")
 
 	s.notifyJobChange(newJob)
