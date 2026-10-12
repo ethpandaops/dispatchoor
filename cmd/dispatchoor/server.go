@@ -84,7 +84,11 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 		return err
 	}
 
-	defer queueSvc.Stop()
+	defer func() {
+		if err := queueSvc.Stop(); err != nil {
+			log.WithError(err).Warn("Failed to stop queue service")
+		}
+	}()
 
 	api.EnqueueTemplates(ctx, log, queueSvc, newTemplates)
 
