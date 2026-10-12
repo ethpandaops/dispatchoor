@@ -70,7 +70,7 @@ const (
 
 	// githubTokenStaleTTL is how long a validated GitHub token keeps working
 	// while uncached lookups are rate limited.
-	githubTokenStaleTTL = time.Hour
+	githubTokenStaleTTL = 15 * time.Minute
 
 	// githubTokenRejectTTL is how long a rejected GitHub token is cached.
 	githubTokenRejectTTL = time.Minute
