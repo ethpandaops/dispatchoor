@@ -836,17 +836,55 @@ func (s *server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
 // handleListJobTemplates godoc
 //
 //	@Summary		List job templates
-//	@Description	Returns all job templates for a group
+//	@Description	Returns the job templates for a group, optionally filtered by labels (label.KEY=VALUE, AND logic), missing labels, or whether an auto-requeue job for the template is in the queue
 //	@Tags			templates
 //	@Security		BearerAuth
 //	@Produce		json
-//	@Param			id	path		string	true	"Group ID"
-//	@Success		200	{array}		store.JobTemplate
-//	@Failure		401	{object}	ErrorResponse
-//	@Failure		500	{object}	ErrorResponse
+//	@Param			id				path		string	true	"Group ID"
+//	@Param			unlabeled		query		bool	false	"Only templates without labels"
+//	@Param			auto_requeue	query		bool	false	"Only templates with (true) or without (false) an auto-requeue job in the queue"
+//	@Success		200				{array}		store.JobTemplate
+//	@Failure		400				{object}	ErrorResponse
+//	@Failure		401				{object}	ErrorResponse
+//	@Failure		500				{object}	ErrorResponse
 //	@Router			/groups/{id}/templates [get]
 func (s *server) handleListJobTemplates(w http.ResponseWriter, r *http.Request) {
 	groupID := chi.URLParam(r, "id")
+	query := r.URL.Query()
+
+	labels := make(map[string]string)
+
+	for key, values := range query {
+		if strings.HasPrefix(key, "label.") && len(values) > 0 {
+			labels[strings.TrimPrefix(key, "label.")] = values[0]
+		}
+	}
+
+	var unlabeled bool
+
+	if v := query.Get("unlabeled"); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid unlabeled parameter")
+
+			return
+		}
+
+		unlabeled = parsed
+	}
+
+	var autoRequeue *bool
+
+	if v := query.Get("auto_requeue"); v != "" {
+		parsed, err := strconv.ParseBool(v)
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, "Invalid auto_requeue parameter")
+
+			return
+		}
+
+		autoRequeue = &parsed
+	}
 
 	templates, err := s.store.ListJobTemplatesByGroup(r.Context(), groupID)
 	if err != nil {
@@ -856,11 +894,55 @@ func (s *server) handleListJobTemplates(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if templates == nil {
-		templates = []*store.JobTemplate{}
+	var autoRequeueTemplateIDs map[string]bool
+
+	if autoRequeue != nil {
+		jobs, err := s.store.ListJobsByGroup(r.Context(), groupID, store.JobStatusPending, store.JobStatusTriggered, store.JobStatusRunning)
+		if err != nil {
+			s.log.WithError(err).Error("Failed to get queue")
+			s.writeError(w, http.StatusInternalServerError, "Failed to get queue")
+
+			return
+		}
+
+		autoRequeueTemplateIDs = make(map[string]bool, len(jobs))
+
+		for _, job := range jobs {
+			if job.AutoRequeue && job.TemplateID != "" {
+				autoRequeueTemplateIDs[job.TemplateID] = true
+			}
+		}
 	}
 
-	s.writeJSON(w, http.StatusOK, templates)
+	filtered := make([]*store.JobTemplate, 0, len(templates))
+
+	for _, tmpl := range templates {
+		if unlabeled && len(tmpl.Labels) > 0 {
+			continue
+		}
+
+		if !templateHasLabels(tmpl, labels) {
+			continue
+		}
+
+		if autoRequeue != nil && autoRequeueTemplateIDs[tmpl.ID] != *autoRequeue {
+			continue
+		}
+
+		filtered = append(filtered, tmpl)
+	}
+
+	s.writeJSON(w, http.StatusOK, filtered)
+}
+
+func templateHasLabels(tmpl *store.JobTemplate, labels map[string]string) bool {
+	for key, value := range labels {
+		if tmpl.Labels[key] != value {
+			return false
+		}
+	}
+
+	return true
 }
 
 // handleGetJobTemplate godoc
