@@ -37,6 +37,7 @@ type Store interface {
 	ListJobsByGroup(ctx context.Context, groupID string, statuses ...JobStatus) ([]*Job, error)
 	ListJobsByStatus(ctx context.Context, statuses ...JobStatus) ([]*Job, error)
 	ListJobHistory(ctx context.Context, opts HistoryQueryOpts) (*HistoryResult, error)
+	ListHistoryFacetRows(ctx context.Context, groupID string) ([]HistoryFacetRow, error)
 	GetHistoryStats(ctx context.Context, opts HistoryStatsOpts) (*HistoryStatsResult, error)
 	GetHistoryTimeBounds(ctx context.Context, groupID string) (oldest, newest *time.Time, err error)
 	UpdateJob(ctx context.Context, job *Job) error
@@ -306,6 +307,13 @@ type HistoryResult struct {
 	HasMore    bool
 	NextCursor *time.Time // completed_at of the last job
 	TotalCount int
+}
+
+// HistoryFacetRow is the number of history jobs with a status and set of template labels.
+type HistoryFacetRow struct {
+	Status JobStatus
+	Labels map[string]string
+	Count  int
 }
 
 // HistoryStatsOpts contains options for querying history statistics.

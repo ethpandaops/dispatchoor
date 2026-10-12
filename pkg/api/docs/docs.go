@@ -848,7 +848,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns all job templates for a group",
+                "description": "Returns the job templates for a group, optionally filtered by labels (label.KEY=VALUE, AND logic), missing labels, or whether an auto-requeue job for the template is in the queue",
                 "produces": [
                     "application/json"
                 ],
@@ -863,6 +863,18 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only templates without labels",
+                        "name": "unlabeled",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Only templates with (true) or without (false) an auto-requeue job in the queue",
+                        "name": "auto_requeue",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -873,6 +885,12 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.JobTemplate"
                             }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
                         }
                     },
                     "401": {
@@ -2256,9 +2274,32 @@ const docTemplate = `{
                 }
             }
         },
+        "pkg_api.HistoryFacets": {
+            "type": "object",
+            "properties": {
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "statuses": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "pkg_api.HistoryResponse": {
             "type": "object",
             "properties": {
+                "facets": {
+                    "$ref": "#/definitions/pkg_api.HistoryFacets"
+                },
                 "has_more": {
                     "type": "boolean",
                     "example": true
