@@ -466,14 +466,8 @@ export function GroupPage() {
     return ids;
   }, [queue]);
 
-  // Filter templates based on selected labels (AND logic), unlabeled, or auto-requeue filter
-  const filteredTemplates = useMemo(() => {
-    if (showAutoRequeue) {
-      return templates.filter((t) => autoRequeueTemplateIds.has(t.id));
-    }
-    if (showNoAutoRequeue) {
-      return templates.filter((t) => !autoRequeueTemplateIds.has(t.id));
-    }
+  // Filter templates based on selected labels (AND logic) or unlabeled
+  const labelFilteredTemplates = useMemo(() => {
     if (showUnlabeled) {
       return templates.filter((t) => !t.labels || Object.keys(t.labels).length === 0);
     }
@@ -484,7 +478,25 @@ export function GroupPage() {
         ([key, value]) => t.labels?.[key] === value
       );
     });
-  }, [templates, labelFilters, showUnlabeled, showAutoRequeue, showNoAutoRequeue, autoRequeueTemplateIds]);
+  }, [templates, labelFilters, showUnlabeled]);
+
+  const labelFilteredAutoRequeueCount = useMemo(
+    () => labelFilteredTemplates.filter((t) => autoRequeueTemplateIds.has(t.id)).length,
+    [labelFilteredTemplates, autoRequeueTemplateIds]
+  );
+
+  // Narrow the label-filtered templates by auto-requeue status
+  const filteredTemplates = useMemo(() => {
+    if (showAutoRequeue) {
+      return labelFilteredTemplates.filter((t) => autoRequeueTemplateIds.has(t.id));
+    }
+    if (showNoAutoRequeue) {
+      return labelFilteredTemplates.filter((t) => !autoRequeueTemplateIds.has(t.id));
+    }
+    return labelFilteredTemplates;
+  }, [labelFilteredTemplates, showAutoRequeue, showNoAutoRequeue, autoRequeueTemplateIds]);
+
+  const requeueStatus = showAutoRequeue || showNoAutoRequeue ? templateFilters.status : null;
 
   const toggleLabelFilter = (key: string, value: string) => {
     const newLabels = { ...labelFilters };
@@ -493,7 +505,7 @@ export function GroupPage() {
     } else {
       newLabels[key] = value;
     }
-    updateTemplateFilters({ status: null, labels: newLabels });
+    updateTemplateFilters({ status: requeueStatus, labels: newLabels });
   };
 
   const toggleUnlabeled = () => {
@@ -501,15 +513,15 @@ export function GroupPage() {
   };
 
   const toggleAutoRequeue = () => {
-    updateTemplateFilters({ status: showAutoRequeue ? null : 'auto-requeue', labels: {} });
+    updateTemplateFilters({ status: showAutoRequeue ? null : 'auto-requeue', labels: labelFilters });
   };
 
   const toggleNoAutoRequeue = () => {
-    updateTemplateFilters({ status: showNoAutoRequeue ? null : 'no-auto-requeue', labels: {} });
+    updateTemplateFilters({ status: showNoAutoRequeue ? null : 'no-auto-requeue', labels: labelFilters });
   };
 
   const clearLabelFilters = () => {
-    updateTemplateFilters({ status: null, labels: {} });
+    updateTemplateFilters({ status: requeueStatus, labels: {} });
   };
 
   // Selection helpers
@@ -1313,7 +1325,7 @@ export function GroupPage() {
                                 ? 'bg-green-500/30 text-green-300 ring-1 ring-green-500/50'
                                 : status === 'failed'
                                 ? 'bg-red-500/30 text-red-300 ring-1 ring-red-500/50'
-                                : 'bg-zinc-500/30 text-zinc-300 ring-1 ring-zinc-500/50'
+                                : 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50'
                               : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
                           }`}
                         >
@@ -1549,18 +1561,18 @@ export function GroupPage() {
                         <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
-                        auto-requeue ({autoRequeueTemplateIds.size})
+                        auto-requeue ({labelFilteredAutoRequeueCount})
                       </span>
                     </button>
                     <button
                       onClick={toggleNoAutoRequeue}
                       className={`rounded-xs px-2 py-0.5 text-xs transition-colors ${
                         showNoAutoRequeue
-                          ? 'bg-zinc-500/30 text-zinc-300 ring-1 ring-zinc-500/50'
+                          ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50'
                           : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
                       }`}
                     >
-                      no auto-requeue ({templates.length - autoRequeueTemplateIds.size})
+                      no auto-requeue ({labelFilteredTemplates.length - labelFilteredAutoRequeueCount})
                     </button>
                   </div>
                 </div>
