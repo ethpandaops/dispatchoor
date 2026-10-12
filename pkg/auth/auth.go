@@ -59,13 +59,21 @@ type service struct {
 }
 
 type githubTokenEntry struct {
-	userID    string
-	expiresAt time.Time
+	userID     string // empty for rejected tokens
+	validUntil time.Time
+	keepUntil  time.Time
 }
 
 const (
 	// githubTokenCacheTTL is how long a validated GitHub token is cached.
 	githubTokenCacheTTL = 5 * time.Minute
+
+	// githubTokenStaleTTL is how long a validated GitHub token keeps working
+	// while uncached lookups are rate limited.
+	githubTokenStaleTTL = time.Hour
+
+	// githubTokenRejectTTL is how long a rejected GitHub token is cached.
+	githubTokenRejectTTL = time.Minute
 
 	// githubTokenLookupsPerMinute and githubTokenLookupBurst bound the
 	// server-wide rate of GitHub API lookups for uncached tokens.
@@ -375,35 +383,47 @@ func (s *service) validateGitHubToken(ctx context.Context, token, tokenHash stri
 	entry, ok := s.githubTokens[tokenHash]
 	s.githubTokensMu.Unlock()
 
-	if ok && now.Before(entry.expiresAt) {
-		user, err := s.store.GetUser(ctx, entry.userID)
-		if err != nil {
-			return nil, fmt.Errorf("getting user: %w", err)
-		}
-
-		if user != nil {
-			return user, nil
-		}
+	if ok && entry.userID == "" && now.Before(entry.validUntil) {
+		return nil, fmt.Errorf("github token rejected")
 	}
 
-	if !s.githubTokenLookups.Allow() {
+	if ok && entry.userID != "" && (now.Before(entry.validUntil) || !s.githubTokenLookups.Allow() && now.Before(entry.keepUntil)) {
+		return s.cachedGitHubTokenUser(ctx, entry.userID)
+	}
+
+	if !ok && !s.githubTokenLookups.Allow() {
 		return nil, fmt.Errorf("too many github token lookups")
 	}
 
 	user, err := s.userFromGitHubToken(ctx, token)
-	if err != nil {
-		return nil, err
+
+	entry = githubTokenEntry{validUntil: now.Add(githubTokenRejectTTL), keepUntil: now.Add(githubTokenRejectTTL)}
+	if err == nil {
+		entry = githubTokenEntry{userID: user.ID, validUntil: now.Add(githubTokenCacheTTL), keepUntil: now.Add(githubTokenStaleTTL)}
 	}
 
 	s.githubTokensMu.Lock()
 	for hash, e := range s.githubTokens {
-		if now.After(e.expiresAt) {
+		if now.After(e.keepUntil) {
 			delete(s.githubTokens, hash)
 		}
 	}
 
-	s.githubTokens[tokenHash] = githubTokenEntry{userID: user.ID, expiresAt: now.Add(githubTokenCacheTTL)}
+	s.githubTokens[tokenHash] = entry
 	s.githubTokensMu.Unlock()
+
+	return user, err
+}
+
+func (s *service) cachedGitHubTokenUser(ctx context.Context, userID string) (*store.User, error) {
+	user, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("getting user: %w", err)
+	}
+
+	if user == nil {
+		return nil, fmt.Errorf("user not found")
+	}
 
 	return user, nil
 }

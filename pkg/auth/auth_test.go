@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ethpandaops/dispatchoor/pkg/config"
 	"github.com/ethpandaops/dispatchoor/pkg/store"
@@ -107,5 +108,39 @@ func TestValidateSessionGitHubToken(t *testing.T) {
 
 	if userCalls != 0 {
 		t.Errorf("Expected no member lookups while rate limited, got %d", userCalls)
+	}
+
+	// Rejected tokens are cached, so repeating one does not drain the lookup budget.
+	svc = NewService(log, cfg, st)
+	s := svc.(*service)
+
+	for range githubTokenLookupBurst + 5 {
+		_, _ = svc.ValidateSession(ctx, "gho_invalid")
+	}
+
+	if s.githubTokenLookups.Tokens() < githubTokenLookupBurst-1 {
+		t.Errorf("Expected repeated invalid token to use one lookup, %.1f left", s.githubTokenLookups.Tokens())
+	}
+
+	// A previously validated token keeps working while lookups are rate limited.
+	if _, err := svc.ValidateSession(ctx, "gho_member"); err != nil {
+		t.Fatalf("Expected GitHub token to authenticate: %v", err)
+	}
+
+	s.githubTokensMu.Lock()
+	for hash, e := range s.githubTokens {
+		if e.userID != "" {
+			e.validUntil = time.Now().Add(-time.Second)
+			s.githubTokens[hash] = e
+		}
+	}
+	s.githubTokensMu.Unlock()
+
+	for i := range githubTokenLookupBurst + 5 {
+		_, _ = svc.ValidateSession(ctx, fmt.Sprintf("gho_random%d", i))
+	}
+
+	if _, err := svc.ValidateSession(ctx, "gho_member"); err != nil {
+		t.Errorf("Expected stale GitHub token to authenticate while rate limited: %v", err)
 	}
 }
