@@ -77,6 +77,17 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 		return err
 	}
 
+	// Create queue service.
+	queueSvc := queue.NewService(log, cfg, st)
+
+	if err := queueSvc.Start(ctx); err != nil {
+		return err
+	}
+
+	defer queueSvc.Stop()
+
+	api.EnqueueTemplates(ctx, log, queueSvc, newTemplates)
+
 	// Create metrics.
 	m := metrics.New()
 	m.SetBuildInfo(Version, GitCommit, BuildDate)
@@ -145,17 +156,6 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	} else {
 		log.Warn("No GitHub token configured for dispatch - workflow dispatch disabled")
 	}
-
-	// Create queue service.
-	queueSvc := queue.NewService(log, cfg, st)
-
-	if err := queueSvc.Start(ctx); err != nil {
-		return err
-	}
-
-	defer queueSvc.Stop()
-
-	api.EnqueueTemplates(ctx, log, queueSvc, newTemplates)
 
 	// Create and start dispatcher (only if dispatch client is connected).
 	var disp dispatcher.Dispatcher
