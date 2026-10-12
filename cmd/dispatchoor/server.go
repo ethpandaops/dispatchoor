@@ -71,12 +71,6 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 		return err
 	}
 
-	// Sync groups from config.
-	newTemplates, err := api.SyncGroupsFromConfig(ctx, log, st, cfg)
-	if err != nil {
-		return err
-	}
-
 	// Create queue service.
 	queueSvc := queue.NewService(log, cfg, st)
 
@@ -90,7 +84,10 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 		}
 	}()
 
-	api.EnqueueTemplates(ctx, log, queueSvc, newTemplates)
+	// Sync groups from config.
+	if err := api.SyncGroupsFromConfig(ctx, log, st, cfg, api.AutoRequeueEnqueuer(queueSvc)); err != nil {
+		return err
+	}
 
 	// Create metrics.
 	m := metrics.New()

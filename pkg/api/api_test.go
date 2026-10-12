@@ -3,10 +3,13 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -232,7 +235,7 @@ func TestHandleReloadTemplates(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, nil); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
 
@@ -449,7 +452,7 @@ func TestHandleReloadTemplates_InvalidConfig(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, nil); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
 
@@ -523,7 +526,7 @@ func TestHandleDeleteGroup(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, nil); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
 
@@ -702,7 +705,7 @@ func TestSyncGroupsFromConfigCategories(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, nil); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
 
@@ -734,7 +737,7 @@ func TestSyncGroupsFromConfigCategories(t *testing.T) {
 		t.Fatalf("Failed to reload config: %v", err)
 	}
 
-	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, nil); err != nil {
 		t.Fatalf("Failed to re-sync groups: %v", err)
 	}
 
@@ -782,12 +785,19 @@ func TestSyncGroupsFromConfigAutoEnqueue(t *testing.T) {
 			"workflow_dispatch_templates": []map[string]any{tmpl("manual-a")},
 		},
 	}
-	cfgPath := writeTestConfigWithGroups(t, tmpDir, dbPath, groups)
 
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
+	load := func() *config.Config {
+		t.Helper()
+
+		cfg, err := config.Load(writeTestConfigWithGroups(t, tmpDir, dbPath, groups))
+		if err != nil {
+			t.Fatalf("Failed to load config: %v", err)
+		}
+
+		return cfg
 	}
+
+	cfg := load()
 
 	st := store.NewSQLiteStore(log, dbPath)
 	if err := st.Start(ctx); err != nil {
@@ -799,17 +809,11 @@ func TestSyncGroupsFromConfigAutoEnqueue(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	created, err := SyncGroupsFromConfig(ctx, log, st, cfg)
-	if err != nil {
+	enqueue := AutoRequeueEnqueuer(queue.NewService(log, cfg, st))
+
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, enqueue); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
-
-	if len(created) != 1 || created[0].ID != "auto-a" {
-		t.Fatalf("Expected only auto-a to be auto-enqueued, got %v", created)
-	}
-
-	q := queue.NewService(log, cfg, st)
-	EnqueueTemplates(ctx, log, q, created)
 
 	pending, err := st.ListJobsByGroup(ctx, "auto-group", store.JobStatusPending)
 	if err != nil {
@@ -833,22 +837,37 @@ func TestSyncGroupsFromConfigAutoEnqueue(t *testing.T) {
 		t.Fatalf("Expected no jobs in manual-group, got %d", len(manual))
 	}
 
-	// Only templates added since the last sync are returned on re-sync.
+	// A failed enqueue removes the new template so the next sync retries it.
 	groups[0]["workflow_dispatch_templates"] = []map[string]any{tmpl("auto-a"), tmpl("auto-b")}
-	cfgPath = writeTestConfigWithGroups(t, tmpDir, dbPath, groups)
+	cfg = load()
 
-	cfg, err = config.Load(cfgPath)
-	if err != nil {
-		t.Fatalf("Failed to reload config: %v", err)
+	failing := func(context.Context, *store.JobTemplate) error { return errors.New("boom") }
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, failing); err == nil {
+		t.Fatal("Expected sync to fail when auto-enqueue fails")
 	}
 
-	created, err = SyncGroupsFromConfig(ctx, log, st, cfg)
-	if err != nil {
+	if tmplB, err := st.GetJobTemplate(ctx, "auto-b"); err != nil || tmplB != nil {
+		t.Fatalf("Expected auto-b to be removed after failed enqueue, got %v (err %v)", tmplB, err)
+	}
+
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, enqueue); err != nil {
 		t.Fatalf("Failed to re-sync groups: %v", err)
 	}
 
-	if len(created) != 1 || created[0].ID != "auto-b" {
-		t.Fatalf("Expected only auto-b on re-sync, got %v", created)
+	pending, err = st.ListJobsByGroup(ctx, "auto-group", store.JobStatusPending)
+	if err != nil {
+		t.Fatalf("Failed to list jobs: %v", err)
+	}
+
+	ids := make([]string, 0, len(pending))
+	for _, job := range pending {
+		ids = append(ids, job.TemplateID)
+	}
+
+	sort.Strings(ids)
+
+	if !reflect.DeepEqual(ids, []string{"auto-a", "auto-b"}) {
+		t.Fatalf("Expected one job each for auto-a and auto-b after retry, got %v", ids)
 	}
 }
 

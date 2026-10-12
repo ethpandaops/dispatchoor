@@ -2199,19 +2199,19 @@ func (s *server) isSecureRequest(r *http.Request) bool {
 }
 
 // SyncGroupsFromConfig synchronizes groups and job templates from configuration.
-// It returns the newly created templates of groups with auto_enqueue_new_templates enabled.
-func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.Store, cfg *config.Config) ([]*store.JobTemplate, error) {
+// For groups with auto_enqueue_new_templates enabled, enqueue is called for each
+// newly created template; if it fails the template is removed again so the next
+// sync retries it.
+func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.Store, cfg *config.Config, enqueue TemplateEnqueuer) error {
 	log.Info("Syncing groups from configuration")
 
 	now := time.Now()
-
-	var autoEnqueue []*store.JobTemplate
 
 	for _, groupCfg := range cfg.Groups.GitHub {
 		// Check if group exists.
 		existing, err := st.GetGroup(ctx, groupCfg.ID)
 		if err != nil {
-			return nil, fmt.Errorf("checking group %s: %w", groupCfg.ID, err)
+			return fmt.Errorf("checking group %s: %w", groupCfg.ID, err)
 		}
 
 		group := &store.Group{
@@ -2229,7 +2229,7 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 			log.WithField("group", groupCfg.ID).Info("Creating group")
 
 			if err := st.CreateGroup(ctx, group); err != nil {
-				return nil, fmt.Errorf("creating group %s: %w", groupCfg.ID, err)
+				return fmt.Errorf("creating group %s: %w", groupCfg.ID, err)
 			}
 		} else {
 			log.WithField("group", groupCfg.ID).Info("Updating group")
@@ -2238,7 +2238,7 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 			group.Paused = existing.Paused
 
 			if err := st.UpdateGroup(ctx, group); err != nil {
-				return nil, fmt.Errorf("updating group %s: %w", groupCfg.ID, err)
+				return fmt.Errorf("updating group %s: %w", groupCfg.ID, err)
 			}
 		}
 
@@ -2270,7 +2270,7 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 			// Check if template exists.
 			existingTemplate, err := st.GetJobTemplate(ctx, tmplCfg.ID)
 			if err != nil {
-				return nil, fmt.Errorf("checking job template %s: %w", tmplCfg.ID, err)
+				return fmt.Errorf("checking job template %s: %w", tmplCfg.ID, err)
 			}
 
 			if existingTemplate == nil {
@@ -2280,11 +2280,17 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 				}).Info("Creating job template")
 
 				if err := st.CreateJobTemplate(ctx, template); err != nil {
-					return nil, fmt.Errorf("creating job template %s: %w", tmplCfg.ID, err)
+					return fmt.Errorf("creating job template %s: %w", tmplCfg.ID, err)
 				}
 
-				if groupCfg.AutoEnqueueNewTemplates {
-					autoEnqueue = append(autoEnqueue, template)
+				if groupCfg.AutoEnqueueNewTemplates && enqueue != nil {
+					if err := enqueue(ctx, template); err != nil {
+						if delErr := st.DeleteJobTemplate(ctx, template.ID); delErr != nil {
+							log.WithError(delErr).WithField("template", template.ID).Warn("Failed to remove template after auto-enqueue failure")
+						}
+
+						return fmt.Errorf("auto-enqueueing job template %s: %w", tmplCfg.ID, err)
+					}
 				}
 			} else {
 				log.WithFields(logrus.Fields{
@@ -2295,7 +2301,7 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 				template.CreatedAt = existingTemplate.CreatedAt
 
 				if err := st.UpdateJobTemplate(ctx, template); err != nil {
-					return nil, fmt.Errorf("updating job template %s: %w", tmplCfg.ID, err)
+					return fmt.Errorf("updating job template %s: %w", tmplCfg.ID, err)
 				}
 			}
 		}
@@ -2303,7 +2309,7 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 		// Handle orphaned templates: templates in DB but not in config.
 		dbTemplates, err := st.ListJobTemplatesByGroup(ctx, groupCfg.ID)
 		if err != nil {
-			return nil, fmt.Errorf("listing templates for group %s: %w", groupCfg.ID, err)
+			return fmt.Errorf("listing templates for group %s: %w", groupCfg.ID, err)
 		}
 
 		for _, dbTmpl := range dbTemplates {
@@ -2349,22 +2355,22 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 		}
 	}
 
-	return autoEnqueue, nil
+	return nil
 }
 
-// AutoEnqueueCreatedBy is the creator recorded on jobs enqueued by EnqueueTemplates.
+// AutoEnqueueCreatedBy is the creator recorded on jobs enqueued by AutoRequeueEnqueuer.
 const AutoEnqueueCreatedBy = "auto-enqueue"
 
-// EnqueueTemplates adds an auto-requeue job for each template to its group's queue.
-func EnqueueTemplates(ctx context.Context, log logrus.FieldLogger, q queue.Service, templates []*store.JobTemplate) {
-	for _, tmpl := range templates {
+// TemplateEnqueuer enqueues the initial job for a newly created template.
+type TemplateEnqueuer func(ctx context.Context, tmpl *store.JobTemplate) error
+
+// AutoRequeueEnqueuer returns a TemplateEnqueuer that adds an auto-requeue job
+// for the template to its group's queue.
+func AutoRequeueEnqueuer(q queue.Service) TemplateEnqueuer {
+	return func(ctx context.Context, tmpl *store.JobTemplate) error {
 		_, err := q.Enqueue(ctx, tmpl.GroupID, tmpl.ID, AutoEnqueueCreatedBy, nil, &queue.EnqueueOptions{AutoRequeue: true})
-		if err != nil {
-			log.WithError(err).WithFields(logrus.Fields{
-				"group":    tmpl.GroupID,
-				"template": tmpl.ID,
-			}).Warn("Failed to auto-enqueue new template")
-		}
+
+		return err
 	}
 }
 
@@ -2411,8 +2417,7 @@ func (s *server) handleReloadTemplates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sync the refreshed templates to the database.
-	newTemplates, err := SyncGroupsFromConfig(r.Context(), s.log, s.store, newCfg)
-	if err != nil {
+	if err := SyncGroupsFromConfig(r.Context(), s.log, s.store, newCfg, AutoRequeueEnqueuer(s.queue)); err != nil {
 		s.log.WithError(err).Error("Failed to sync templates")
 		s.writeError(w, http.StatusInternalServerError,
 			fmt.Sprintf("Failed to sync templates: %v", err))
@@ -2424,8 +2429,6 @@ func (s *server) handleReloadTemplates(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.Lock()
 	s.cfg.Groups = newCfg.Groups
 	s.cfgMu.Unlock()
-
-	EnqueueTemplates(r.Context(), s.log, s.queue, newTemplates)
 
 	// Build response with per-group template counts.
 	groups := make([]ReloadTemplatesGroupStats, 0, len(newCfg.Groups.GitHub))
