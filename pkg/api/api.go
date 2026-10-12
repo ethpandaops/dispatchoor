@@ -2199,7 +2199,10 @@ func (s *server) isSecureRequest(r *http.Request) bool {
 }
 
 // SyncGroupsFromConfig synchronizes groups and job templates from configuration.
-func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.Store, cfg *config.Config) error {
+// For groups with auto_enqueue_new_templates enabled, enqueue is called for each
+// newly created template; if it fails the template is removed again so the next
+// sync retries it.
+func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.Store, cfg *config.Config, enqueue TemplateEnqueuer) error {
 	log.Info("Syncing groups from configuration")
 
 	now := time.Now()
@@ -2279,6 +2282,16 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 				if err := st.CreateJobTemplate(ctx, template); err != nil {
 					return fmt.Errorf("creating job template %s: %w", tmplCfg.ID, err)
 				}
+
+				if groupCfg.AutoEnqueueNewTemplates && enqueue != nil {
+					if err := enqueue(ctx, template); err != nil {
+						if delErr := st.DeleteJobTemplate(ctx, template.ID); delErr != nil {
+							log.WithError(delErr).WithField("template", template.ID).Warn("Failed to remove template after auto-enqueue failure")
+						}
+
+						return fmt.Errorf("auto-enqueueing job template %s: %w", tmplCfg.ID, err)
+					}
+				}
 			} else {
 				log.WithFields(logrus.Fields{
 					"group":    groupCfg.ID,
@@ -2345,6 +2358,22 @@ func SyncGroupsFromConfig(ctx context.Context, log logrus.FieldLogger, st store.
 	return nil
 }
 
+// AutoEnqueueCreatedBy is the creator recorded on jobs enqueued by AutoRequeueEnqueuer.
+const AutoEnqueueCreatedBy = "auto-enqueue"
+
+// TemplateEnqueuer enqueues the initial job for a newly created template.
+type TemplateEnqueuer func(ctx context.Context, tmpl *store.JobTemplate) error
+
+// AutoRequeueEnqueuer returns a TemplateEnqueuer that adds an auto-requeue job
+// for the template to its group's queue.
+func AutoRequeueEnqueuer(q queue.Service) TemplateEnqueuer {
+	return func(ctx context.Context, tmpl *store.JobTemplate) error {
+		_, err := q.Enqueue(ctx, tmpl.GroupID, tmpl.ID, AutoEnqueueCreatedBy, nil, &queue.EnqueueOptions{AutoRequeue: true})
+
+		return err
+	}
+}
+
 // ReloadTemplatesResponse is the response for the template reload endpoint.
 type ReloadTemplatesResponse struct {
 	Message string                      `json:"message" example:"Templates reloaded successfully"`
@@ -2388,7 +2417,7 @@ func (s *server) handleReloadTemplates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sync the refreshed templates to the database.
-	if err := SyncGroupsFromConfig(r.Context(), s.log, s.store, newCfg); err != nil {
+	if err := SyncGroupsFromConfig(r.Context(), s.log, s.store, newCfg, AutoRequeueEnqueuer(s.queue)); err != nil {
 		s.log.WithError(err).Error("Failed to sync templates")
 		s.writeError(w, http.StatusInternalServerError,
 			fmt.Sprintf("Failed to sync templates: %v", err))

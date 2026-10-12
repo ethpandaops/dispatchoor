@@ -84,6 +84,9 @@ groups:
         - self-hosted
         - synctest
         - Disk2TB
+      # Queue an auto-requeue job for each template the first time it is loaded
+      # (at startup or on template reload).
+      # auto_enqueue_new_templates: true
       # Templates can be defined inline, loaded from local files, or fetched from remote URLs:
       # workflow_dispatch_templates_files:
       #   - templates/hoodi.yaml

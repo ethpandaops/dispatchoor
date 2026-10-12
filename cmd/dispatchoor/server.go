@@ -71,8 +71,21 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 		return err
 	}
 
+	// Create queue service.
+	queueSvc := queue.NewService(log, cfg, st)
+
+	if err := queueSvc.Start(ctx); err != nil {
+		return err
+	}
+
+	defer func() {
+		if err := queueSvc.Stop(); err != nil {
+			log.WithError(err).Warn("Failed to stop queue service")
+		}
+	}()
+
 	// Sync groups from config.
-	if err := api.SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if err := api.SyncGroupsFromConfig(ctx, log, st, cfg, api.AutoRequeueEnqueuer(queueSvc)); err != nil {
 		return err
 	}
 
@@ -144,15 +157,6 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	} else {
 		log.Warn("No GitHub token configured for dispatch - workflow dispatch disabled")
 	}
-
-	// Create queue service.
-	queueSvc := queue.NewService(log, cfg, st)
-
-	if err := queueSvc.Start(ctx); err != nil {
-		return err
-	}
-
-	defer queueSvc.Stop()
 
 	// Create and start dispatcher (only if dispatch client is connected).
 	var disp dispatcher.Dispatcher
