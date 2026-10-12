@@ -1350,6 +1350,7 @@ export function GroupPage() {
                           }`}
                         >
                           {status}
+                          {historyData?.facets && ` (${historyData.facets.statuses[status] ?? 0})`}
                         </button>
                       ))}
                     </div>
@@ -1373,6 +1374,7 @@ export function GroupPage() {
                                 }`}
                               >
                                 {value}
+                                {historyData?.facets && ` (${historyData.facets.labels[key]?.[value] ?? 0})`}
                               </button>
                             ))}
                           </div>

@@ -80,11 +80,17 @@ export interface Job {
   labels?: Record<string, string>;
 }
 
+export interface HistoryFacets {
+  statuses: Partial<Record<JobStatus, number>>;
+  labels: Record<string, Record<string, number>>;
+}
+
 export interface HistoryResponse {
   jobs: Job[];
   has_more: boolean;
   next_cursor?: string;
   total_count: number;
+  facets?: HistoryFacets;
 }
 
 export interface HistoryStatsBucket {

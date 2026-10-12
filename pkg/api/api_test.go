@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1002,5 +1004,146 @@ func TestHandleListJobTemplatesFilters(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("Expected status 400 for invalid auto_requeue, got %d", w.Code)
+	}
+}
+
+func TestHandleGetHistoryFacets(t *testing.T) {
+	ctx := context.Background()
+	log := logrus.New()
+	log.SetOutput(os.Stderr)
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	tmpl := func(id, el string) map[string]any {
+		return map[string]any{
+			"id":          id,
+			"name":        id,
+			"owner":       "ethpandaops",
+			"repo":        "syncoor-tests",
+			"workflow_id": "syncoor.yaml",
+			"ref":         "master",
+			"labels":      map[string]string{"el-client": el, "network": "mainnet"},
+		}
+	}
+
+	cfgPath := writeTestConfig(t, tmpDir, dbPath, []map[string]any{
+		tmpl("mainnet-geth", "geth"),
+		tmpl("mainnet-erigon", "erigon"),
+	})
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	st := store.NewSQLiteStore(log, dbPath)
+	if err := st.Start(ctx); err != nil {
+		t.Fatalf("Failed to start store: %v", err)
+	}
+	defer func() { _ = st.Stop() }()
+
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("Failed to migrate: %v", err)
+	}
+
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, nil); err != nil {
+		t.Fatalf("Failed to sync groups: %v", err)
+	}
+
+	now := time.Now()
+	jobs := []struct {
+		template string
+		status   store.JobStatus
+	}{
+		{"mainnet-geth", store.JobStatusCompleted},
+		{"mainnet-geth", store.JobStatusFailed},
+		{"mainnet-erigon", store.JobStatusFailed},
+		{"mainnet-erigon", store.JobStatusFailed},
+		{"mainnet-erigon", store.JobStatusCancelled},
+		{"mainnet-erigon", store.JobStatusPending},
+	}
+
+	for i, j := range jobs {
+		completedAt := now.Add(-time.Duration(i) * time.Minute)
+		job := &store.Job{
+			ID:          fmt.Sprintf("job-%d", i),
+			GroupID:     "test-group",
+			TemplateID:  j.template,
+			Status:      j.status,
+			CreatedBy:   "test",
+			CompletedAt: &completedAt,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+
+		if err := st.CreateJob(ctx, job); err != nil {
+			t.Fatalf("Failed to create job: %v", err)
+		}
+	}
+
+	srv := NewServer(log, cfg, cfgPath, st, queue.NewService(log, cfg, st), &stubAuth{},
+		&stubGitHubClient{}, &stubGitHubClient{}, testMetrics)
+	s := srv.(*server)
+
+	user := &store.User{ID: "test-user-id", Username: "test", Role: store.RoleReadOnly}
+
+	get := func(query string) HistoryResponse {
+		t.Helper()
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/groups/test-group/history?"+query, nil)
+		req.Header.Set("Authorization", "Bearer test-token")
+		req = req.WithContext(auth.ContextWithUser(req.Context(), user))
+
+		w := httptest.NewRecorder()
+		s.router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("Expected status 200 for %q, got %d: %s", query, w.Code, w.Body.String())
+		}
+
+		var resp HistoryResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+
+		return resp
+	}
+
+	resp := get("status=failed")
+	if resp.TotalCount != 3 || resp.Facets == nil {
+		t.Fatalf("Expected 3 failed jobs with facets, got %d (facets %v)", resp.TotalCount, resp.Facets)
+	}
+
+	wantStatuses := map[store.JobStatus]int{store.JobStatusCompleted: 1, store.JobStatusFailed: 3, store.JobStatusCancelled: 1}
+	if !reflect.DeepEqual(resp.Facets.Statuses, wantStatuses) {
+		t.Errorf("Expected status facets %v, got %v", wantStatuses, resp.Facets.Statuses)
+	}
+
+	wantEL := map[string]int{"erigon": 2, "geth": 1}
+	if !reflect.DeepEqual(resp.Facets.Labels["el-client"], wantEL) {
+		t.Errorf("Expected el-client facets %v, got %v", wantEL, resp.Facets.Labels["el-client"])
+	}
+
+	resp = get("status=failed&label.el-client=erigon")
+	if resp.TotalCount != 2 {
+		t.Fatalf("Expected 2 failed erigon jobs, got %d", resp.TotalCount)
+	}
+
+	if !reflect.DeepEqual(resp.Facets.Labels["el-client"], wantEL) {
+		t.Errorf("Expected selected label key to keep sibling counts %v, got %v", wantEL, resp.Facets.Labels["el-client"])
+	}
+
+	wantStatuses = map[store.JobStatus]int{store.JobStatusFailed: 2, store.JobStatusCancelled: 1}
+	if !reflect.DeepEqual(resp.Facets.Statuses, wantStatuses) {
+		t.Errorf("Expected erigon status facets %v, got %v", wantStatuses, resp.Facets.Statuses)
+	}
+
+	if !reflect.DeepEqual(resp.Facets.Labels["network"], map[string]int{"mainnet": 2}) {
+		t.Errorf("Expected network facets {mainnet: 2}, got %v", resp.Facets.Labels["network"])
+	}
+
+	if resp := get("status=failed&before=" + url.QueryEscape(now.Format(time.RFC3339Nano))); resp.Facets != nil {
+		t.Errorf("Expected no facets on paginated requests")
 	}
 }

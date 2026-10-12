@@ -952,6 +952,45 @@ func (s *PostgresStore) DeleteOldJobs(ctx context.Context, olderThan time.Time) 
 	return count, nil
 }
 
+// ListHistoryFacetRows returns the status and template labels of every history job in a group.
+func (s *PostgresStore) ListHistoryFacetRows(ctx context.Context, groupID string) ([]HistoryFacetRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT j.status, t.labels
+		FROM jobs j
+		LEFT JOIN job_templates t ON j.template_id = t.id
+		WHERE j.group_id = $1
+		AND j.status IN ($2, $3, $4)
+	`, groupID, JobStatusCompleted, JobStatusFailed, JobStatusCancelled)
+	if err != nil {
+		return nil, fmt.Errorf("querying history facets: %w", err)
+	}
+
+	defer rows.Close()
+
+	var result []HistoryFacetRow
+
+	for rows.Next() {
+		var (
+			row        HistoryFacetRow
+			labelsJSON sql.NullString
+		)
+
+		if err := rows.Scan(&row.Status, &labelsJSON); err != nil {
+			return nil, fmt.Errorf("scanning history facet row: %w", err)
+		}
+
+		if labelsJSON.Valid && labelsJSON.String != "" {
+			if err := json.Unmarshal([]byte(labelsJSON.String), &row.Labels); err != nil {
+				return nil, fmt.Errorf("unmarshaling labels: %w", err)
+			}
+		}
+
+		result = append(result, row)
+	}
+
+	return result, rows.Err()
+}
+
 // ListJobHistory retrieves paginated job history with cursor-based pagination.
 func (s *PostgresStore) ListJobHistory(ctx context.Context, opts HistoryQueryOpts) (*HistoryResult, error) {
 	// Determine which statuses to filter by.

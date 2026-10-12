@@ -2274,9 +2274,32 @@ const docTemplate = `{
                 }
             }
         },
+        "pkg_api.HistoryFacets": {
+            "type": "object",
+            "properties": {
+                "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "statuses": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "pkg_api.HistoryResponse": {
             "type": "object",
             "properties": {
+                "facets": {
+                    "$ref": "#/definitions/pkg_api.HistoryFacets"
+                },
                 "has_more": {
                     "type": "boolean",
                     "example": true

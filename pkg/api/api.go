@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1654,10 +1655,65 @@ type SystemStatusResponse struct {
 
 // HistoryResponse wraps the paginated history response.
 type HistoryResponse struct {
-	Jobs       []*store.Job `json:"jobs"`
-	HasMore    bool         `json:"has_more" example:"true"`
-	NextCursor string       `json:"next_cursor,omitempty" example:"2024-01-15T10:30:00Z"`
-	TotalCount int          `json:"total_count" example:"150"`
+	Jobs       []*store.Job   `json:"jobs"`
+	HasMore    bool           `json:"has_more" example:"true"`
+	NextCursor string         `json:"next_cursor,omitempty" example:"2024-01-15T10:30:00Z"`
+	TotalCount int            `json:"total_count" example:"150"`
+	Facets     *HistoryFacets `json:"facets,omitempty"`
+}
+
+// HistoryFacets contains the number of history jobs each filter option would
+// match, given the other active filters. Status counts apply the label
+// filters; counts for a label key apply the status filter and the filters on
+// the other label keys.
+type HistoryFacets struct {
+	Statuses map[store.JobStatus]int   `json:"statuses"`
+	Labels   map[string]map[string]int `json:"labels"`
+}
+
+func computeHistoryFacets(rows []store.HistoryFacetRow, statuses []store.JobStatus, labels map[string]string) *HistoryFacets {
+	facets := &HistoryFacets{
+		Statuses: make(map[store.JobStatus]int),
+		Labels:   make(map[string]map[string]int),
+	}
+
+	statusMatches := func(status store.JobStatus) bool {
+		return len(statuses) == 0 || slices.Contains(statuses, status)
+	}
+
+	for _, row := range rows {
+		mismatched := ""
+		mismatches := 0
+
+		for key, value := range labels {
+			if row.Labels[key] != value {
+				mismatched = key
+				mismatches++
+			}
+		}
+
+		if mismatches == 0 {
+			facets.Statuses[row.Status]++
+		}
+
+		if !statusMatches(row.Status) || mismatches > 1 {
+			continue
+		}
+
+		for key, value := range row.Labels {
+			if mismatches == 1 && key != mismatched {
+				continue
+			}
+
+			if facets.Labels[key] == nil {
+				facets.Labels[key] = make(map[string]int)
+			}
+
+			facets.Labels[key][value]++
+		}
+	}
+
+	return facets
 }
 
 // handleGetHistory godoc
@@ -1742,6 +1798,18 @@ func (s *server) handleGetHistory(w http.ResponseWriter, r *http.Request) {
 		Jobs:       result.Jobs,
 		HasMore:    result.HasMore,
 		TotalCount: result.TotalCount,
+	}
+
+	if before == nil {
+		rows, err := s.store.ListHistoryFacetRows(r.Context(), groupID)
+		if err != nil {
+			s.log.WithError(err).Error("Failed to get history facets")
+			s.writeError(w, http.StatusInternalServerError, "Failed to get history")
+
+			return
+		}
+
+		resp.Facets = computeHistoryFacets(rows, statuses, labels)
 	}
 
 	if result.NextCursor != nil {

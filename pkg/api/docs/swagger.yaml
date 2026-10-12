@@ -377,8 +377,23 @@ definitions:
         example: ok
         type: string
     type: object
+  pkg_api.HistoryFacets:
+    properties:
+      labels:
+        additionalProperties:
+          additionalProperties:
+            type: integer
+          type: object
+        type: object
+      statuses:
+        additionalProperties:
+          type: integer
+        type: object
+    type: object
   pkg_api.HistoryResponse:
     properties:
+      facets:
+        $ref: '#/definitions/pkg_api.HistoryFacets'
       has_more:
         example: true
         type: boolean
