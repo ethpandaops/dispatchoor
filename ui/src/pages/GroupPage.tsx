@@ -258,8 +258,8 @@ export function GroupPage() {
   const [confirmDuplicates, setConfirmDuplicates] = useState(false);
 
   // Template filter state from URL
-  type TemplateStatusFilter = 'unlabeled' | 'auto-requeue' | 'no-auto-requeue';
-  const validTemplateStatusFilters: TemplateStatusFilter[] = ['unlabeled', 'auto-requeue', 'no-auto-requeue'];
+  type TemplateStatusFilter = 'auto-requeue' | 'no-auto-requeue';
+  const validTemplateStatusFilters: TemplateStatusFilter[] = ['auto-requeue', 'no-auto-requeue'];
 
   const getTemplateFiltersFromURL = () => {
     const statusParam = searchParams.get('tstatus');
@@ -274,26 +274,36 @@ export function GroupPage() {
       }
     });
 
-    return { status, labels };
+    const unlabeled = searchParams.get('tunlabeled') === '1' || statusParam === 'unlabeled';
+
+    return { status, labels, unlabeled };
   };
 
   const templateFilters = getTemplateFiltersFromURL();
   const labelFilters = templateFilters.labels;
-  const showUnlabeled = templateFilters.status === 'unlabeled';
+  const showUnlabeled = templateFilters.unlabeled;
   const showAutoRequeue = templateFilters.status === 'auto-requeue';
   const showNoAutoRequeue = templateFilters.status === 'no-auto-requeue';
 
-  const updateTemplateFilters = (newFilters: { status: TemplateStatusFilter | null; labels: Record<string, string> }) => {
+  const updateTemplateFilters = (newFilters: {
+    status: TemplateStatusFilter | null;
+    labels: Record<string, string>;
+    unlabeled: boolean;
+  }) => {
     setSearchParams((prev) => {
       // Clear existing template filter params
       const keysToDelete = Array.from(prev.keys()).filter(
-        k => k === 'tstatus' || k.startsWith('tlabel.')
+        k => k === 'tstatus' || k === 'tunlabeled' || k.startsWith('tlabel.')
       );
       keysToDelete.forEach(k => prev.delete(k));
 
       // Set new status filter
       if (newFilters.status) {
         prev.set('tstatus', newFilters.status);
+      }
+
+      if (newFilters.unlabeled) {
+        prev.set('tunlabeled', '1');
       }
 
       // Set new label filters
@@ -466,14 +476,8 @@ export function GroupPage() {
     return ids;
   }, [queue]);
 
-  // Filter templates based on selected labels (AND logic), unlabeled, or auto-requeue filter
-  const filteredTemplates = useMemo(() => {
-    if (showAutoRequeue) {
-      return templates.filter((t) => autoRequeueTemplateIds.has(t.id));
-    }
-    if (showNoAutoRequeue) {
-      return templates.filter((t) => !autoRequeueTemplateIds.has(t.id));
-    }
+  // Filter templates based on selected labels (AND logic) or unlabeled
+  const labelFilteredTemplates = useMemo(() => {
     if (showUnlabeled) {
       return templates.filter((t) => !t.labels || Object.keys(t.labels).length === 0);
     }
@@ -484,7 +488,24 @@ export function GroupPage() {
         ([key, value]) => t.labels?.[key] === value
       );
     });
-  }, [templates, labelFilters, showUnlabeled, showAutoRequeue, showNoAutoRequeue, autoRequeueTemplateIds]);
+  }, [templates, labelFilters, showUnlabeled]);
+
+  const labelFilteredAutoRequeueCount = useMemo(
+    () => labelFilteredTemplates.filter((t) => autoRequeueTemplateIds.has(t.id)).length,
+    [labelFilteredTemplates, autoRequeueTemplateIds]
+  );
+
+  // Narrow the label-filtered templates by auto-requeue status
+  const filteredTemplates = useMemo(() => {
+    if (showAutoRequeue) {
+      return labelFilteredTemplates.filter((t) => autoRequeueTemplateIds.has(t.id));
+    }
+    if (showNoAutoRequeue) {
+      return labelFilteredTemplates.filter((t) => !autoRequeueTemplateIds.has(t.id));
+    }
+    return labelFilteredTemplates;
+  }, [labelFilteredTemplates, showAutoRequeue, showNoAutoRequeue, autoRequeueTemplateIds]);
+
 
   const toggleLabelFilter = (key: string, value: string) => {
     const newLabels = { ...labelFilters };
@@ -493,23 +514,23 @@ export function GroupPage() {
     } else {
       newLabels[key] = value;
     }
-    updateTemplateFilters({ status: null, labels: newLabels });
+    updateTemplateFilters({ status: templateFilters.status, labels: newLabels, unlabeled: false });
   };
 
   const toggleUnlabeled = () => {
-    updateTemplateFilters({ status: showUnlabeled ? null : 'unlabeled', labels: {} });
+    updateTemplateFilters({ status: templateFilters.status, labels: {}, unlabeled: !showUnlabeled });
   };
 
   const toggleAutoRequeue = () => {
-    updateTemplateFilters({ status: showAutoRequeue ? null : 'auto-requeue', labels: {} });
+    updateTemplateFilters({ status: showAutoRequeue ? null : 'auto-requeue', labels: labelFilters, unlabeled: showUnlabeled });
   };
 
   const toggleNoAutoRequeue = () => {
-    updateTemplateFilters({ status: showNoAutoRequeue ? null : 'no-auto-requeue', labels: {} });
+    updateTemplateFilters({ status: showNoAutoRequeue ? null : 'no-auto-requeue', labels: labelFilters, unlabeled: showUnlabeled });
   };
 
   const clearLabelFilters = () => {
-    updateTemplateFilters({ status: null, labels: {} });
+    updateTemplateFilters({ status: templateFilters.status, labels: {}, unlabeled: false });
   };
 
   // Selection helpers
@@ -1529,7 +1550,7 @@ export function GroupPage() {
                     <span className="text-xs font-medium text-zinc-400">Filter by status</span>
                     {(showAutoRequeue || showNoAutoRequeue) && (
                       <button
-                        onClick={() => updateTemplateFilters({ status: null, labels: labelFilters })}
+                        onClick={() => updateTemplateFilters({ status: null, labels: labelFilters, unlabeled: showUnlabeled })}
                         className="text-xs text-zinc-500 hover:text-zinc-300"
                       >
                         Clear
@@ -1549,18 +1570,18 @@ export function GroupPage() {
                         <svg className="size-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
-                        auto-requeue ({autoRequeueTemplateIds.size})
+                        auto-requeue ({labelFilteredAutoRequeueCount})
                       </span>
                     </button>
                     <button
                       onClick={toggleNoAutoRequeue}
                       className={`rounded-xs px-2 py-0.5 text-xs transition-colors ${
                         showNoAutoRequeue
-                          ? 'bg-zinc-500/30 text-zinc-300 ring-1 ring-zinc-500/50'
+                          ? 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50'
                           : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
                       }`}
                     >
-                      no auto-requeue ({templates.length - autoRequeueTemplateIds.size})
+                      no auto-requeue ({labelFilteredTemplates.length - labelFilteredAutoRequeueCount})
                     </button>
                   </div>
                 </div>
