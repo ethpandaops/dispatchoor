@@ -135,6 +135,7 @@ type Group struct {
 	WorkflowDispatchTemplates      []WorkflowDispatchTemplate `yaml:"workflow_dispatch_templates"`
 	WorkflowDispatchTemplatesFiles []string                   `yaml:"workflow_dispatch_templates_files"`
 	WorkflowDispatchTemplatesURLs  []string                   `yaml:"workflow_dispatch_templates_urls"`
+	AutoEnqueueNewTemplates        bool                       `yaml:"auto_enqueue_new_templates"`
 }
 
 // WorkflowDispatchTemplate represents a workflow dispatch template configuration.

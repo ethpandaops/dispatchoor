@@ -232,7 +232,7 @@ func TestHandleReloadTemplates(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
 
@@ -449,7 +449,7 @@ func TestHandleReloadTemplates_InvalidConfig(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
 
@@ -523,7 +523,7 @@ func TestHandleDeleteGroup(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
 
@@ -702,7 +702,7 @@ func TestSyncGroupsFromConfigCategories(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
 
@@ -734,7 +734,7 @@ func TestSyncGroupsFromConfigCategories(t *testing.T) {
 		t.Fatalf("Failed to reload config: %v", err)
 	}
 
-	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if _, err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
 		t.Fatalf("Failed to re-sync groups: %v", err)
 	}
 
@@ -745,6 +745,110 @@ func TestSyncGroupsFromConfigCategories(t *testing.T) {
 
 	if categorized.Category != "Perf Tests" {
 		t.Errorf("Expected updated category 'Perf Tests', got '%s'", categorized.Category)
+	}
+}
+
+func TestSyncGroupsFromConfigAutoEnqueue(t *testing.T) {
+	ctx := context.Background()
+	log := logrus.New()
+	log.SetOutput(os.Stderr)
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	tmpl := func(id string) map[string]any {
+		return map[string]any{
+			"id":          id,
+			"name":        id,
+			"owner":       "ethpandaops",
+			"repo":        "syncoor-tests",
+			"workflow_id": "syncoor.yaml",
+			"ref":         "master",
+		}
+	}
+
+	groups := []map[string]any{
+		{
+			"id":                          "auto-group",
+			"name":                        "Auto Group",
+			"runner_labels":               []string{"self-hosted"},
+			"auto_enqueue_new_templates":  true,
+			"workflow_dispatch_templates": []map[string]any{tmpl("auto-a")},
+		},
+		{
+			"id":                          "manual-group",
+			"name":                        "Manual Group",
+			"runner_labels":               []string{"self-hosted"},
+			"workflow_dispatch_templates": []map[string]any{tmpl("manual-a")},
+		},
+	}
+	cfgPath := writeTestConfigWithGroups(t, tmpDir, dbPath, groups)
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	st := store.NewSQLiteStore(log, dbPath)
+	if err := st.Start(ctx); err != nil {
+		t.Fatalf("Failed to start store: %v", err)
+	}
+	defer func() { _ = st.Stop() }()
+
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("Failed to migrate: %v", err)
+	}
+
+	created, err := SyncGroupsFromConfig(ctx, log, st, cfg)
+	if err != nil {
+		t.Fatalf("Failed to sync groups: %v", err)
+	}
+
+	if len(created) != 1 || created[0].ID != "auto-a" {
+		t.Fatalf("Expected only auto-a to be auto-enqueued, got %v", created)
+	}
+
+	q := queue.NewService(log, cfg, st)
+	EnqueueTemplates(ctx, log, q, created)
+
+	pending, err := st.ListJobsByGroup(ctx, "auto-group", store.JobStatusPending)
+	if err != nil {
+		t.Fatalf("Failed to list jobs: %v", err)
+	}
+
+	if len(pending) != 1 || pending[0].TemplateID != "auto-a" || !pending[0].AutoRequeue {
+		t.Fatalf("Expected one auto-requeue job for auto-a, got %v", pending)
+	}
+
+	if pending[0].CreatedBy != AutoEnqueueCreatedBy {
+		t.Errorf("Expected created_by '%s', got '%s'", AutoEnqueueCreatedBy, pending[0].CreatedBy)
+	}
+
+	manual, err := st.ListJobsByGroup(ctx, "manual-group")
+	if err != nil {
+		t.Fatalf("Failed to list jobs: %v", err)
+	}
+
+	if len(manual) != 0 {
+		t.Fatalf("Expected no jobs in manual-group, got %d", len(manual))
+	}
+
+	// Only templates added since the last sync are returned on re-sync.
+	groups[0]["workflow_dispatch_templates"] = []map[string]any{tmpl("auto-a"), tmpl("auto-b")}
+	cfgPath = writeTestConfigWithGroups(t, tmpDir, dbPath, groups)
+
+	cfg, err = config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to reload config: %v", err)
+	}
+
+	created, err = SyncGroupsFromConfig(ctx, log, st, cfg)
+	if err != nil {
+		t.Fatalf("Failed to re-sync groups: %v", err)
+	}
+
+	if len(created) != 1 || created[0].ID != "auto-b" {
+		t.Fatalf("Expected only auto-b on re-sync, got %v", created)
 	}
 }
 

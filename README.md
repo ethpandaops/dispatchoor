@@ -212,6 +212,8 @@ groups:
       runner_labels:
         - self-hosted
         - sync-test
+      # Queue an auto-requeue job for each template the first time it is loaded
+      # auto_enqueue_new_templates: true
       # Option 1: Inline templates
       workflow_dispatch_templates:
         - id: sync-geth-prysm

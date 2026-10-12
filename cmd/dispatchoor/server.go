@@ -72,7 +72,8 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	}
 
 	// Sync groups from config.
-	if err := api.SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	newTemplates, err := api.SyncGroupsFromConfig(ctx, log, st, cfg)
+	if err != nil {
 		return err
 	}
 
@@ -153,6 +154,8 @@ func runServer(ctx context.Context, log *logrus.Logger, configPath string) error
 	}
 
 	defer queueSvc.Stop()
+
+	api.EnqueueTemplates(ctx, log, queueSvc, newTemplates)
 
 	// Create and start dispatcher (only if dispatch client is connected).
 	var disp dispatcher.Dispatcher
