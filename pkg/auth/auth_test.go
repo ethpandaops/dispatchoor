@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -89,5 +90,22 @@ func TestValidateSessionGitHubToken(t *testing.T) {
 	svc = NewService(log, cfg, st)
 	if _, err := svc.ValidateSession(ctx, "gho_member"); err == nil {
 		t.Error("Expected GitHub token to be rejected when GitHub auth is disabled")
+	}
+
+	cfg.Auth.GitHub.Enabled = true
+
+	svc = NewService(log, cfg, st)
+	userCalls = 0
+
+	for i := range githubTokenLookupBurst + 5 {
+		_, _ = svc.ValidateSession(ctx, fmt.Sprintf("gho_random%d", i))
+	}
+
+	if _, err := svc.ValidateSession(ctx, "gho_member"); err == nil {
+		t.Error("Expected uncached GitHub token to be rejected once lookups are rate limited")
+	}
+
+	if userCalls != 0 {
+		t.Errorf("Expected no member lookups while rate limited, got %d", userCalls)
 	}
 }

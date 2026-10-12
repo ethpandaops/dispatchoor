@@ -222,10 +222,10 @@ func (s *server) setupRouter() {
 
 		// Protected routes with authenticated rate limit.
 		r.Group(func(r chi.Router) {
-			r.Use(auth.AuthMiddleware(s.auth))
 			if s.authenticatedRateLimiter != nil {
 				r.Use(s.authenticatedRateLimiter.Middleware)
 			}
+			r.Use(auth.AuthMiddleware(s.auth))
 
 			// Auth (authenticated).
 			r.Post("/auth/logout", s.handleLogout)

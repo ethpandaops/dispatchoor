@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/time/rate"
 )
 
 // Service defines the interface for authentication operations.
@@ -52,8 +53,9 @@ type service struct {
 	store      store.Store
 	sessionTTL time.Duration
 
-	githubTokensMu sync.Mutex
-	githubTokens   map[string]githubTokenEntry
+	githubTokensMu     sync.Mutex
+	githubTokens       map[string]githubTokenEntry
+	githubTokenLookups *rate.Limiter
 }
 
 type githubTokenEntry struct {
@@ -61,8 +63,15 @@ type githubTokenEntry struct {
 	expiresAt time.Time
 }
 
-// githubTokenCacheTTL is how long a validated GitHub token is cached.
-const githubTokenCacheTTL = 5 * time.Minute
+const (
+	// githubTokenCacheTTL is how long a validated GitHub token is cached.
+	githubTokenCacheTTL = 5 * time.Minute
+
+	// githubTokenLookupsPerMinute and githubTokenLookupBurst bound the
+	// server-wide rate of GitHub API lookups for uncached tokens.
+	githubTokenLookupsPerMinute = 30
+	githubTokenLookupBurst      = 10
+)
 
 // Ensure service implements Service.
 var _ Service = (*service)(nil)
@@ -75,6 +84,8 @@ func NewService(log logrus.FieldLogger, cfg *config.Config, st store.Store) Serv
 		store:        st,
 		sessionTTL:   cfg.Auth.SessionTTL,
 		githubTokens: make(map[string]githubTokenEntry),
+		githubTokenLookups: rate.NewLimiter(
+			rate.Every(time.Minute/githubTokenLookupsPerMinute), githubTokenLookupBurst),
 	}
 }
 
@@ -373,6 +384,10 @@ func (s *service) validateGitHubToken(ctx context.Context, token, tokenHash stri
 		if user != nil {
 			return user, nil
 		}
+	}
+
+	if !s.githubTokenLookups.Allow() {
+		return nil, fmt.Errorf("too many github token lookups")
 	}
 
 	user, err := s.userFromGitHubToken(ctx, token)
