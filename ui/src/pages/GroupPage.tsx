@@ -1325,7 +1325,7 @@ export function GroupPage() {
                                 ? 'bg-green-500/30 text-green-300 ring-1 ring-green-500/50'
                                 : status === 'failed'
                                 ? 'bg-red-500/30 text-red-300 ring-1 ring-red-500/50'
-                                : 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50'
+                                : 'bg-zinc-500/30 text-zinc-300 ring-1 ring-zinc-500/50'
                               : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-300'
                           }`}
                         >
