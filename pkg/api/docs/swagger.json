@@ -278,6 +278,135 @@
                 }
             }
         },
+        "/auth/tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the current user's API tokens (without the secret values)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "List API tokens",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.APIToken"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a personal API token for the current user. The token is only returned once. Requires a session login; API tokens cannot create further tokens.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Create API token",
+                "parameters": [
+                    {
+                        "description": "Token details",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.CreateAPITokenRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.CreateAPITokenResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/tokens/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Revokes one of the current user's API tokens",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Revoke API token",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Token ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Token revoked"
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pkg_api.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/groups": {
             "get": {
                 "security": [
@@ -1699,6 +1828,32 @@
         }
     },
     "definitions": {
+        "github_com_ethpandaops_dispatchoor_pkg_store.APIToken": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_used_at": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "token_prefix": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_ethpandaops_dispatchoor_pkg_store.AuthProvider": {
             "type": "string",
             "enum": [
@@ -2057,6 +2212,31 @@
                 "ComponentStatusDegraded",
                 "ComponentStatusUnhealthy"
             ]
+        },
+        "pkg_api.CreateAPITokenRequest": {
+            "type": "object",
+            "properties": {
+                "expires_in_days": {
+                    "type": "integer",
+                    "example": 90
+                },
+                "name": {
+                    "type": "string",
+                    "example": "claude @ laptop"
+                }
+            }
+        },
+        "pkg_api.CreateAPITokenResponse": {
+            "type": "object",
+            "properties": {
+                "api_token": {
+                    "$ref": "#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.APIToken"
+                },
+                "token": {
+                    "type": "string",
+                    "example": "dsp_..."
+                }
+            }
         },
         "pkg_api.DatabaseStatus": {
             "type": "object",

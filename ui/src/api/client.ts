@@ -12,6 +12,8 @@ import type {
   HistoryStatsTimeRange,
   HealthResponse,
   ReloadTemplatesResponse,
+  APIToken,
+  CreateAPITokenResponse,
 } from '../types';
 import { getConfig } from '../config';
 
@@ -124,6 +126,25 @@ class ApiClient {
   }
 
   // Groups
+  getApiUrl(): string {
+    return new URL(this.getApiBase(), window.location.origin).toString().replace(/\/+$/, '');
+  }
+
+  async getAPITokens(): Promise<APIToken[]> {
+    return this.request<APIToken[]>('/auth/tokens');
+  }
+
+  async createAPIToken(name: string, expiresInDays: number): Promise<CreateAPITokenResponse> {
+    return this.request<CreateAPITokenResponse>('/auth/tokens', {
+      method: 'POST',
+      body: JSON.stringify({ name, expires_in_days: expiresInDays }),
+    });
+  }
+
+  async deleteAPIToken(id: string): Promise<void> {
+    await this.request<void>(`/auth/tokens/${id}`, { method: 'DELETE' });
+  }
+
   async getGroups(): Promise<GroupWithStats[]> {
     return this.request<GroupWithStats[]>('/groups');
   }

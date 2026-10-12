@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,6 +99,15 @@ func (a *stubAuth) CreateAuthCode(context.Context, string) (string, error) {
 }
 func (a *stubAuth) ExchangeAuthCode(context.Context, string) (*store.User, string, error) {
 	return nil, "", nil
+}
+func (a *stubAuth) CreateAPIToken(context.Context, *store.User, string, time.Duration) (*store.APIToken, string, error) {
+	return nil, "", nil
+}
+func (a *stubAuth) ListAPITokens(context.Context, string) ([]*store.APIToken, error) {
+	return nil, nil
+}
+func (a *stubAuth) DeleteAPIToken(context.Context, string, string) (bool, error) {
+	return false, nil
 }
 
 // stubGitHubClient implements github.Client for testing.
@@ -873,4 +883,19 @@ func TestSyncGroupsFromConfigAutoEnqueue(t *testing.T) {
 
 func ptr[T any](v T) *T {
 	return &v
+}
+
+func TestHandleCreateAPITokenRejectsAPITokenAuth(t *testing.T) {
+	srv := &server{log: logrus.New(), auth: &stubAuth{}}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", strings.NewReader(`{"name":"x"}`))
+	req.Header.Set("Authorization", "Bearer dsp_abc")
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &store.User{ID: "u"}))
+
+	rec := httptest.NewRecorder()
+	srv.handleCreateAPIToken(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
 }

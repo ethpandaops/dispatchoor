@@ -230,6 +230,9 @@ func (s *server) setupRouter() {
 			// Auth (authenticated).
 			r.Post("/auth/logout", s.handleLogout)
 			r.Get("/auth/me", s.handleMe)
+			r.Get("/auth/tokens", s.handleListAPITokens)
+			r.Post("/auth/tokens", s.handleCreateAPIToken)
+			r.Delete("/auth/tokens/{id}", s.handleDeleteAPIToken)
 
 			// Groups (read-only).
 			r.Get("/groups", s.handleListGroups)
@@ -1991,6 +1994,142 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, http.StatusOK, user)
+}
+
+const (
+	defaultAPITokenExpiryDays = 90
+	maxAPITokenExpiryDays     = 365
+	maxAPITokenNameLen        = 100
+)
+
+// CreateAPITokenRequest is the request body for creating an API token.
+type CreateAPITokenRequest struct {
+	Name          string `json:"name" example:"claude @ laptop"`
+	ExpiresInDays int    `json:"expires_in_days" example:"90"`
+}
+
+// CreateAPITokenResponse contains the created API token. The plaintext token is only returned once.
+type CreateAPITokenResponse struct {
+	Token    string          `json:"token" example:"dsp_..."`
+	APIToken *store.APIToken `json:"api_token"`
+}
+
+// handleListAPITokens godoc
+//
+//	@Summary		List API tokens
+//	@Description	Returns the current user's API tokens (without the secret values)
+//	@Tags			auth
+//	@Security		BearerAuth
+//	@Produce		json
+//	@Success		200	{array}		store.APIToken
+//	@Failure		401	{object}	ErrorResponse
+//	@Router			/auth/tokens [get]
+func (s *server) handleListAPITokens(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+
+	tokens, err := s.auth.ListAPITokens(r.Context(), user.ID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to list API tokens")
+		s.writeError(w, http.StatusInternalServerError, "Failed to list API tokens")
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, tokens)
+}
+
+// handleCreateAPIToken godoc
+//
+//	@Summary		Create API token
+//	@Description	Creates a personal API token for the current user. The token is only returned once. Requires a session login; API tokens cannot create further tokens.
+//	@Tags			auth
+//	@Security		BearerAuth
+//	@Accept			json
+//	@Produce		json
+//	@Param			body	body		CreateAPITokenRequest	true	"Token details"
+//	@Success		201		{object}	CreateAPITokenResponse
+//	@Failure		400		{object}	ErrorResponse
+//	@Failure		401		{object}	ErrorResponse
+//	@Failure		403		{object}	ErrorResponse
+//	@Router			/auth/tokens [post]
+func (s *server) handleCreateAPIToken(w http.ResponseWriter, r *http.Request) {
+	if auth.IsAPITokenRequest(r) {
+		s.writeError(w, http.StatusForbidden, "API tokens cannot create API tokens")
+
+		return
+	}
+
+	var req CreateAPITokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+
+		return
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" || len(req.Name) > maxAPITokenNameLen {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Name is required (max %d characters)", maxAPITokenNameLen))
+
+		return
+	}
+
+	if req.ExpiresInDays == 0 {
+		req.ExpiresInDays = defaultAPITokenExpiryDays
+	}
+
+	if req.ExpiresInDays < 1 || req.ExpiresInDays > maxAPITokenExpiryDays {
+		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("expires_in_days must be between 1 and %d", maxAPITokenExpiryDays))
+
+		return
+	}
+
+	user := auth.UserFromContext(r.Context())
+
+	token, plaintext, err := s.auth.CreateAPIToken(
+		r.Context(), user, req.Name, time.Duration(req.ExpiresInDays)*24*time.Hour,
+	)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to create API token")
+		s.writeError(w, http.StatusInternalServerError, "Failed to create API token")
+
+		return
+	}
+
+	s.writeJSON(w, http.StatusCreated, CreateAPITokenResponse{
+		Token:    plaintext,
+		APIToken: token,
+	})
+}
+
+// handleDeleteAPIToken godoc
+//
+//	@Summary		Revoke API token
+//	@Description	Revokes one of the current user's API tokens
+//	@Tags			auth
+//	@Security		BearerAuth
+//	@Param			id	path	string	true	"Token ID"
+//	@Success		204	"Token revoked"
+//	@Failure		401	{object}	ErrorResponse
+//	@Failure		404	{object}	ErrorResponse
+//	@Router			/auth/tokens/{id} [delete]
+func (s *server) handleDeleteAPIToken(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+
+	deleted, err := s.auth.DeleteAPIToken(r.Context(), chi.URLParam(r, "id"), user.ID)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to delete API token")
+		s.writeError(w, http.StatusInternalServerError, "Failed to revoke API token")
+
+		return
+	}
+
+	if !deleted {
+		s.writeError(w, http.StatusNotFound, "API token not found")
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleGitHubAuth godoc

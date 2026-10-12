@@ -1,5 +1,22 @@
 basePath: /api/v1
 definitions:
+  github_com_ethpandaops_dispatchoor_pkg_store.APIToken:
+    properties:
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      last_used_at:
+        type: string
+      name:
+        type: string
+      token_prefix:
+        type: string
+      user_id:
+        type: string
+    type: object
   github_com_ethpandaops_dispatchoor_pkg_store.AuthProvider:
     enum:
     - basic
@@ -248,6 +265,23 @@ definitions:
     - ComponentStatusHealthy
     - ComponentStatusDegraded
     - ComponentStatusUnhealthy
+  pkg_api.CreateAPITokenRequest:
+    properties:
+      expires_in_days:
+        example: 90
+        type: integer
+      name:
+        example: claude @ laptop
+        type: string
+    type: object
+  pkg_api.CreateAPITokenResponse:
+    properties:
+      api_token:
+        $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.APIToken'
+      token:
+        example: dsp_...
+        type: string
+    type: object
   pkg_api.DatabaseStatus:
     properties:
       error:
@@ -760,6 +794,89 @@ paths:
       security:
       - BearerAuth: []
       summary: Get current user
+      tags:
+      - auth
+  /auth/tokens:
+    get:
+      description: Returns the current user's API tokens (without the secret values)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.APIToken'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List API tokens
+      tags:
+      - auth
+    post:
+      consumes:
+      - application/json
+      description: Creates a personal API token for the current user. The token is
+        only returned once. Requires a session login; API tokens cannot create further
+        tokens.
+      parameters:
+      - description: Token details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/pkg_api.CreateAPITokenRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/pkg_api.CreateAPITokenResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create API token
+      tags:
+      - auth
+  /auth/tokens/{id}:
+    delete:
+      description: Revokes one of the current user's API tokens
+      parameters:
+      - description: Token ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Token revoked
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Revoke API token
       tags:
       - auth
   /groups:
