@@ -199,6 +199,10 @@ To set up GitHub OAuth:
 
 Users must be in at least one role mapping (`org_role_mapping` or `user_role_mapping`) to log in.
 
+#### API Tokens
+
+For scripts, CLIs and agents, create a personal API token from the user menu → **API tokens**. Tokens start with `dsp_`, act as the user with their current role, expire after 1–365 days, are shown only once and can be revoked at any time. Pass them as `Authorization: Bearer dsp_...`. API tokens cannot create further tokens.
+
 ### Groups and Templates
 
 Groups define pools of runners identified by labels. Each group can have multiple workflow dispatch templates defined inline, loaded from local files, or fetched from remote URLs:
@@ -321,6 +325,9 @@ Full API documentation is available in [OpenAPI/Swagger format](pkg/api/docs/swa
 | GET | `/api/v1/auth/github/callback` | - | GitHub OAuth callback |
 | POST | `/api/v1/auth/logout` | User | Logout and invalidate session |
 | GET | `/api/v1/auth/me` | User | Get current user info |
+| GET | `/api/v1/auth/tokens` | User | List your API tokens |
+| POST | `/api/v1/auth/tokens` | User (session) | Create an API token (returned once) |
+| DELETE | `/api/v1/auth/tokens/{id}` | User | Revoke one of your API tokens |
 
 ### Groups
 

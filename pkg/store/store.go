@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -71,6 +72,13 @@ type Store interface {
 	DeleteSession(ctx context.Context, id string) error
 	DeleteExpiredSessions(ctx context.Context) error
 	DeleteUserSessions(ctx context.Context, userID string) error
+
+	// API Tokens.
+	CreateAPIToken(ctx context.Context, token *APIToken) error
+	GetAPITokenByHash(ctx context.Context, tokenHash string) (*APIToken, error)
+	ListAPITokensByUser(ctx context.Context, userID string) ([]*APIToken, error)
+	DeleteAPIToken(ctx context.Context, id, userID string) (bool, error)
+	UpdateAPITokenLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error
 
 	// OAuth States (CSRF protection).
 	CreateOAuthState(ctx context.Context, state *OAuthState) error
@@ -226,6 +234,18 @@ type Session struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// APIToken represents a long-lived personal API token.
+type APIToken struct {
+	ID          string     `json:"id"`
+	UserID      string     `json:"user_id"`
+	Name        string     `json:"name"`
+	TokenHash   string     `json:"-"`
+	TokenPrefix string     `json:"token_prefix"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	LastUsedAt  *time.Time `json:"last_used_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
 // OAuthState represents a CSRF state token for OAuth flows.
 type OAuthState struct {
 	State     string    `json:"state"`
@@ -351,4 +371,32 @@ type HistoryStatsResult struct {
 	Buckets []*HistoryStatsBucket `json:"buckets"`
 	Range   HistoryStatsRange     `json:"range"`
 	Totals  HistoryStatsTotals    `json:"totals"`
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanAPIToken(row rowScanner) (*APIToken, error) {
+	var (
+		token                 APIToken
+		expiresAt, lastUsedAt sql.NullTime
+	)
+
+	if err := row.Scan(
+		&token.ID, &token.UserID, &token.Name, &token.TokenHash, &token.TokenPrefix,
+		&expiresAt, &lastUsedAt, &token.CreatedAt,
+	); err != nil {
+		return nil, err
+	}
+
+	if expiresAt.Valid {
+		token.ExpiresAt = &expiresAt.Time
+	}
+
+	if lastUsedAt.Valid {
+		token.LastUsedAt = &lastUsedAt.Time
+	}
+
+	return &token, nil
 }

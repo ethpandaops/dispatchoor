@@ -28,6 +28,11 @@ type Service interface {
 	ValidateSession(ctx context.Context, token string) (*store.User, error)
 	Logout(ctx context.Context, token string) error
 
+	// API tokens.
+	CreateAPIToken(ctx context.Context, user *store.User, name string, ttl time.Duration) (*store.APIToken, string, error)
+	ListAPITokens(ctx context.Context, userID string) ([]*store.APIToken, error)
+	DeleteAPIToken(ctx context.Context, id, userID string) (bool, error)
+
 	// Authorization.
 	HasRole(user *store.User, role store.Role) bool
 	IsAdmin(user *store.User) bool
@@ -284,8 +289,12 @@ func (s *service) AuthenticateGitHub(ctx context.Context, code string) (*store.U
 	return user, token, nil
 }
 
-// ValidateSession validates a session token and returns the associated user.
+// ValidateSession validates a session or API token and returns the associated user.
 func (s *service) ValidateSession(ctx context.Context, token string) (*store.User, error) {
+	if strings.HasPrefix(token, apiTokenPrefix) {
+		return s.validateAPIToken(ctx, token)
+	}
+
 	tokenHash := hashToken(token)
 
 	session, err := s.store.GetSessionByToken(ctx, tokenHash)
@@ -429,6 +438,95 @@ func hashToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
 
 	return hex.EncodeToString(hash[:])
+}
+
+const (
+	apiTokenPrefix             = "dsp_"
+	apiTokenDisplayLen         = 12
+	apiTokenLastUsedResolution = time.Minute
+)
+
+// CreateAPIToken creates a new API token for a user and returns the plaintext token once.
+func (s *service) CreateAPIToken(
+	ctx context.Context,
+	user *store.User,
+	name string,
+	ttl time.Duration,
+) (*store.APIToken, string, error) {
+	bytes := make([]byte, 32)
+
+	if _, err := rand.Read(bytes); err != nil {
+		return nil, "", fmt.Errorf("generating token: %w", err)
+	}
+
+	plaintext := apiTokenPrefix + base64.RawURLEncoding.EncodeToString(bytes)
+	now := time.Now()
+	expiresAt := now.Add(ttl)
+
+	token := &store.APIToken{
+		ID:          uuid.New().String(),
+		UserID:      user.ID,
+		Name:        name,
+		TokenHash:   hashToken(plaintext),
+		TokenPrefix: plaintext[:apiTokenDisplayLen],
+		ExpiresAt:   &expiresAt,
+		CreatedAt:   now,
+	}
+
+	if err := s.store.CreateAPIToken(ctx, token); err != nil {
+		return nil, "", fmt.Errorf("creating api token: %w", err)
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"username": user.Username,
+		"token_id": token.ID,
+	}).Info("API token created")
+
+	return token, plaintext, nil
+}
+
+// ListAPITokens lists the API tokens belonging to a user.
+func (s *service) ListAPITokens(ctx context.Context, userID string) ([]*store.APIToken, error) {
+	return s.store.ListAPITokensByUser(ctx, userID)
+}
+
+// DeleteAPIToken revokes an API token belonging to a user.
+func (s *service) DeleteAPIToken(ctx context.Context, id, userID string) (bool, error) {
+	return s.store.DeleteAPIToken(ctx, id, userID)
+}
+
+func (s *service) validateAPIToken(ctx context.Context, plaintext string) (*store.User, error) {
+	token, err := s.store.GetAPITokenByHash(ctx, hashToken(plaintext))
+	if err != nil {
+		return nil, fmt.Errorf("getting api token: %w", err)
+	}
+
+	if token == nil {
+		return nil, fmt.Errorf("api token not found")
+	}
+
+	now := time.Now()
+
+	if token.ExpiresAt != nil && now.After(*token.ExpiresAt) {
+		return nil, fmt.Errorf("api token expired")
+	}
+
+	user, err := s.store.GetUser(ctx, token.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("getting user: %w", err)
+	}
+
+	if user == nil {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	if token.LastUsedAt == nil || now.Sub(*token.LastUsedAt) >= apiTokenLastUsedResolution {
+		if err := s.store.UpdateAPITokenLastUsed(ctx, token.ID, now); err != nil {
+			s.log.WithError(err).Warn("Failed to update API token last used")
+		}
+	}
+
+	return user, nil
 }
 
 // GitHubUser represents a GitHub user profile.

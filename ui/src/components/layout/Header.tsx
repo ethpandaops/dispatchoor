@@ -130,6 +130,13 @@ export function Header() {
                   <p className="text-sm font-medium text-zinc-200">{user.username}</p>
                   <p className="text-xs text-zinc-500">{user.auth_provider} auth</p>
                 </div>
+                <Link
+                  to="/tokens"
+                  onClick={() => setShowUserMenu(false)}
+                  className="block px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                >
+                  API tokens
+                </Link>
                 <button
                   onClick={handleLogout}
                   className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800"

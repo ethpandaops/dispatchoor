@@ -107,6 +107,11 @@ func RequireAdmin() func(http.Handler) http.Handler {
 	return RequireRole(store.RoleAdmin)
 }
 
+// IsAPITokenRequest reports whether the request is authenticated with an API token.
+func IsAPITokenRequest(r *http.Request) bool {
+	return strings.HasPrefix(extractToken(r), apiTokenPrefix)
+}
+
 // extractToken extracts the bearer token from the request.
 func extractToken(r *http.Request) string {
 	// Check Authorization header.

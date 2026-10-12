@@ -142,6 +142,21 @@ export interface User {
   updated_at: string;
 }
 
+export interface APIToken {
+  id: string;
+  user_id: string;
+  name: string;
+  token_prefix: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export interface CreateAPITokenResponse {
+  token: string;
+  api_token: APIToken;
+}
+
 export interface ApiError {
   error: string;
 }

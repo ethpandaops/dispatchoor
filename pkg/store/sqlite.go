@@ -201,6 +201,18 @@ func (s *SQLiteStore) Migrate(ctx context.Context) error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_auth_codes_expires ON auth_codes(expires_at)`,
+		// API tokens table.
+		`CREATE TABLE IF NOT EXISTS api_tokens (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			token_hash TEXT NOT NULL UNIQUE,
+			token_prefix TEXT NOT NULL,
+			expires_at TIMESTAMP,
+			last_used_at TIMESTAMP,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id)`,
 		// Migration: Add source_type and source_path columns to job_templates table.
 		`ALTER TABLE job_templates ADD COLUMN source_type TEXT NOT NULL DEFAULT 'inline'`,
 		`ALTER TABLE job_templates ADD COLUMN source_path TEXT NOT NULL DEFAULT ''`,
@@ -1770,6 +1782,93 @@ func (s *SQLiteStore) DeleteUserSessions(ctx context.Context, userID string) err
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ?`, userID)
 	if err != nil {
 		return fmt.Errorf("deleting user sessions: %w", err)
+	}
+
+	return nil
+}
+
+// ============================================================================
+// API Tokens
+// ============================================================================
+
+// CreateAPIToken creates a new API token.
+func (s *SQLiteStore) CreateAPIToken(ctx context.Context, token *APIToken) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO api_tokens (id, user_id, name, token_hash, token_prefix, expires_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, token.ID, token.UserID, token.Name, token.TokenHash, token.TokenPrefix, token.ExpiresAt, token.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("inserting api token: %w", err)
+	}
+
+	return nil
+}
+
+// GetAPITokenByHash retrieves an API token by token hash.
+func (s *SQLiteStore) GetAPITokenByHash(ctx context.Context, tokenHash string) (*APIToken, error) {
+	token, err := scanAPIToken(s.db.QueryRowContext(ctx, `
+		SELECT id, user_id, name, token_hash, token_prefix, expires_at, last_used_at, created_at
+		FROM api_tokens WHERE token_hash = ?
+	`, tokenHash))
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("querying api token by hash: %w", err)
+	}
+
+	return token, nil
+}
+
+// ListAPITokensByUser lists all API tokens belonging to a user.
+func (s *SQLiteStore) ListAPITokensByUser(ctx context.Context, userID string) ([]*APIToken, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, user_id, name, token_hash, token_prefix, expires_at, last_used_at, created_at
+		FROM api_tokens WHERE user_id = ?
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("querying api tokens: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	tokens := make([]*APIToken, 0)
+
+	for rows.Next() {
+		token, err := scanAPIToken(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning api token: %w", err)
+		}
+
+		tokens = append(tokens, token)
+	}
+
+	return tokens, rows.Err()
+}
+
+// DeleteAPIToken deletes an API token owned by the given user.
+func (s *SQLiteStore) DeleteAPIToken(ctx context.Context, id, userID string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ? AND user_id = ?`, id, userID)
+	if err != nil {
+		return false, fmt.Errorf("deleting api token: %w", err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("checking deleted api token: %w", err)
+	}
+
+	return n > 0, nil
+}
+
+// UpdateAPITokenLastUsed records when an API token was last used.
+func (s *SQLiteStore) UpdateAPITokenLastUsed(ctx context.Context, id string, lastUsedAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET last_used_at = ? WHERE id = ?`, lastUsedAt, id)
+	if err != nil {
+		return fmt.Errorf("updating api token last used: %w", err)
 	}
 
 	return nil
