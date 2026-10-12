@@ -309,10 +309,11 @@ type HistoryResult struct {
 	TotalCount int
 }
 
-// HistoryFacetRow is the status and template labels of a history job.
+// HistoryFacetRow is the number of history jobs with a status and set of template labels.
 type HistoryFacetRow struct {
 	Status JobStatus
 	Labels map[string]string
+	Count  int
 }
 
 // HistoryStatsOpts contains options for querying history statistics.

@@ -952,20 +952,21 @@ func (s *PostgresStore) DeleteOldJobs(ctx context.Context, olderThan time.Time) 
 	return count, nil
 }
 
-// ListHistoryFacetRows returns the status and template labels of every history job in a group.
+// ListHistoryFacetRows returns the number of history jobs in a group per status and template labels.
 func (s *PostgresStore) ListHistoryFacetRows(ctx context.Context, groupID string) ([]HistoryFacetRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT j.status, t.labels
+		SELECT j.status, t.labels, COUNT(*)
 		FROM jobs j
 		LEFT JOIN job_templates t ON j.template_id = t.id
 		WHERE j.group_id = $1
 		AND j.status IN ($2, $3, $4)
+		GROUP BY j.status, t.labels
 	`, groupID, JobStatusCompleted, JobStatusFailed, JobStatusCancelled)
 	if err != nil {
 		return nil, fmt.Errorf("querying history facets: %w", err)
 	}
 
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []HistoryFacetRow
 
@@ -975,7 +976,7 @@ func (s *PostgresStore) ListHistoryFacetRows(ctx context.Context, groupID string
 			labelsJSON sql.NullString
 		)
 
-		if err := rows.Scan(&row.Status, &labelsJSON); err != nil {
+		if err := rows.Scan(&row.Status, &labelsJSON, &row.Count); err != nil {
 			return nil, fmt.Errorf("scanning history facet row: %w", err)
 		}
 

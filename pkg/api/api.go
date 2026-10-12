@@ -1693,7 +1693,7 @@ func computeHistoryFacets(rows []store.HistoryFacetRow, statuses []store.JobStat
 		}
 
 		if mismatches == 0 {
-			facets.Statuses[row.Status]++
+			facets.Statuses[row.Status] += row.Count
 		}
 
 		if !statusMatches(row.Status) || mismatches > 1 {
@@ -1709,7 +1709,7 @@ func computeHistoryFacets(rows []store.HistoryFacetRow, statuses []store.JobStat
 				facets.Labels[key] = make(map[string]int)
 			}
 
-			facets.Labels[key][value]++
+			facets.Labels[key][value] += row.Count
 		}
 	}
 
