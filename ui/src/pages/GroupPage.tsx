@@ -258,8 +258,8 @@ export function GroupPage() {
   const [confirmDuplicates, setConfirmDuplicates] = useState(false);
 
   // Template filter state from URL
-  type TemplateStatusFilter = 'unlabeled' | 'auto-requeue' | 'no-auto-requeue';
-  const validTemplateStatusFilters: TemplateStatusFilter[] = ['unlabeled', 'auto-requeue', 'no-auto-requeue'];
+  type TemplateStatusFilter = 'auto-requeue' | 'no-auto-requeue';
+  const validTemplateStatusFilters: TemplateStatusFilter[] = ['auto-requeue', 'no-auto-requeue'];
 
   const getTemplateFiltersFromURL = () => {
     const statusParam = searchParams.get('tstatus');
@@ -274,26 +274,36 @@ export function GroupPage() {
       }
     });
 
-    return { status, labels };
+    const unlabeled = searchParams.get('tunlabeled') === '1' || statusParam === 'unlabeled';
+
+    return { status, labels, unlabeled };
   };
 
   const templateFilters = getTemplateFiltersFromURL();
   const labelFilters = templateFilters.labels;
-  const showUnlabeled = templateFilters.status === 'unlabeled';
+  const showUnlabeled = templateFilters.unlabeled;
   const showAutoRequeue = templateFilters.status === 'auto-requeue';
   const showNoAutoRequeue = templateFilters.status === 'no-auto-requeue';
 
-  const updateTemplateFilters = (newFilters: { status: TemplateStatusFilter | null; labels: Record<string, string> }) => {
+  const updateTemplateFilters = (newFilters: {
+    status: TemplateStatusFilter | null;
+    labels: Record<string, string>;
+    unlabeled: boolean;
+  }) => {
     setSearchParams((prev) => {
       // Clear existing template filter params
       const keysToDelete = Array.from(prev.keys()).filter(
-        k => k === 'tstatus' || k.startsWith('tlabel.')
+        k => k === 'tstatus' || k === 'tunlabeled' || k.startsWith('tlabel.')
       );
       keysToDelete.forEach(k => prev.delete(k));
 
       // Set new status filter
       if (newFilters.status) {
         prev.set('tstatus', newFilters.status);
+      }
+
+      if (newFilters.unlabeled) {
+        prev.set('tunlabeled', '1');
       }
 
       // Set new label filters
@@ -496,7 +506,6 @@ export function GroupPage() {
     return labelFilteredTemplates;
   }, [labelFilteredTemplates, showAutoRequeue, showNoAutoRequeue, autoRequeueTemplateIds]);
 
-  const requeueStatus = showAutoRequeue || showNoAutoRequeue ? templateFilters.status : null;
 
   const toggleLabelFilter = (key: string, value: string) => {
     const newLabels = { ...labelFilters };
@@ -505,23 +514,23 @@ export function GroupPage() {
     } else {
       newLabels[key] = value;
     }
-    updateTemplateFilters({ status: requeueStatus, labels: newLabels });
+    updateTemplateFilters({ status: templateFilters.status, labels: newLabels, unlabeled: false });
   };
 
   const toggleUnlabeled = () => {
-    updateTemplateFilters({ status: showUnlabeled ? null : 'unlabeled', labels: {} });
+    updateTemplateFilters({ status: templateFilters.status, labels: {}, unlabeled: !showUnlabeled });
   };
 
   const toggleAutoRequeue = () => {
-    updateTemplateFilters({ status: showAutoRequeue ? null : 'auto-requeue', labels: labelFilters });
+    updateTemplateFilters({ status: showAutoRequeue ? null : 'auto-requeue', labels: labelFilters, unlabeled: showUnlabeled });
   };
 
   const toggleNoAutoRequeue = () => {
-    updateTemplateFilters({ status: showNoAutoRequeue ? null : 'no-auto-requeue', labels: labelFilters });
+    updateTemplateFilters({ status: showNoAutoRequeue ? null : 'no-auto-requeue', labels: labelFilters, unlabeled: showUnlabeled });
   };
 
   const clearLabelFilters = () => {
-    updateTemplateFilters({ status: requeueStatus, labels: {} });
+    updateTemplateFilters({ status: templateFilters.status, labels: {}, unlabeled: false });
   };
 
   // Selection helpers
@@ -1541,7 +1550,7 @@ export function GroupPage() {
                     <span className="text-xs font-medium text-zinc-400">Filter by status</span>
                     {(showAutoRequeue || showNoAutoRequeue) && (
                       <button
-                        onClick={() => updateTemplateFilters({ status: null, labels: labelFilters })}
+                        onClick={() => updateTemplateFilters({ status: null, labels: labelFilters, unlabeled: showUnlabeled })}
                         className="text-xs text-zinc-500 hover:text-zinc-300"
                       >
                         Clear
