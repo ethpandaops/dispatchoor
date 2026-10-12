@@ -874,3 +874,133 @@ func TestSyncGroupsFromConfigAutoEnqueue(t *testing.T) {
 func ptr[T any](v T) *T {
 	return &v
 }
+
+func TestHandleListJobTemplatesFilters(t *testing.T) {
+	ctx := context.Background()
+	log := logrus.New()
+	log.SetOutput(os.Stderr)
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	tmpl := func(id string, labels map[string]string) map[string]any {
+		return map[string]any{
+			"id":          id,
+			"name":        id,
+			"owner":       "ethpandaops",
+			"repo":        "syncoor-tests",
+			"workflow_id": "syncoor.yaml",
+			"ref":         "master",
+			"labels":      labels,
+		}
+	}
+
+	cfgPath := writeTestConfig(t, tmpDir, dbPath, []map[string]any{
+		tmpl("hoodi-geth", map[string]string{"network": "hoodi", "el-client": "geth"}),
+		tmpl("hoodi-ethrex", map[string]string{"network": "hoodi", "el-client": "ethrex"}),
+		tmpl("sepolia-ethrex", map[string]string{"network": "sepolia", "el-client": "ethrex"}),
+		tmpl("plain", nil),
+	})
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	st := store.NewSQLiteStore(log, dbPath)
+	if err := st.Start(ctx); err != nil {
+		t.Fatalf("Failed to start store: %v", err)
+	}
+	defer func() { _ = st.Stop() }()
+
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("Failed to migrate: %v", err)
+	}
+
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+		t.Fatalf("Failed to sync groups: %v", err)
+	}
+
+	now := time.Now()
+	jobs := []*store.Job{
+		{ID: "job-1", GroupID: "test-group", TemplateID: "hoodi-geth", Status: store.JobStatusRunning, AutoRequeue: true},
+		{ID: "job-2", GroupID: "test-group", TemplateID: "hoodi-ethrex", Status: store.JobStatusPending},
+		{ID: "job-3", GroupID: "test-group", TemplateID: "sepolia-ethrex", Status: store.JobStatusCompleted, AutoRequeue: true},
+	}
+
+	for _, job := range jobs {
+		job.CreatedBy = "test"
+		job.CreatedAt = now
+		job.UpdatedAt = now
+
+		if err := st.CreateJob(ctx, job); err != nil {
+			t.Fatalf("Failed to create job: %v", err)
+		}
+	}
+
+	srv := NewServer(log, cfg, cfgPath, st, &stubQueue{}, &stubAuth{},
+		&stubGitHubClient{}, &stubGitHubClient{}, testMetrics)
+	s := srv.(*server)
+
+	user := &store.User{ID: "test-user-id", Username: "test", Role: store.RoleReadOnly}
+
+	list := func(query string) []string {
+		t.Helper()
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/groups/test-group/templates?"+query, nil)
+		req.Header.Set("Authorization", "Bearer test-token")
+		req = req.WithContext(auth.ContextWithUser(req.Context(), user))
+
+		w := httptest.NewRecorder()
+		s.router.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("Expected status 200 for %q, got %d: %s", query, w.Code, w.Body.String())
+		}
+
+		var templates []store.JobTemplate
+		if err := json.Unmarshal(w.Body.Bytes(), &templates); err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+
+		ids := make([]string, 0, len(templates))
+		for _, tmpl := range templates {
+			ids = append(ids, tmpl.ID)
+		}
+
+		sort.Strings(ids)
+
+		return ids
+	}
+
+	tests := []struct {
+		query string
+		want  []string
+	}{
+		{"", []string{"hoodi-ethrex", "hoodi-geth", "plain", "sepolia-ethrex"}},
+		{"label.el-client=ethrex", []string{"hoodi-ethrex", "sepolia-ethrex"}},
+		{"label.el-client=ethrex&label.network=hoodi", []string{"hoodi-ethrex"}},
+		{"unlabeled=true", []string{"plain"}},
+		{"auto_requeue=true", []string{"hoodi-geth"}},
+		{"auto_requeue=false", []string{"hoodi-ethrex", "plain", "sepolia-ethrex"}},
+		{"label.el-client=ethrex&auto_requeue=false", []string{"hoodi-ethrex", "sepolia-ethrex"}},
+		{"unlabeled=true&auto_requeue=true", []string{}},
+	}
+
+	for _, tt := range tests {
+		if got := list(tt.query); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("Query %q: expected %v, got %v", tt.query, tt.want, got)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/groups/test-group/templates?auto_requeue=maybe", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	req = req.WithContext(auth.ContextWithUser(req.Context(), user))
+
+	w := httptest.NewRecorder()
+	s.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("Expected status 400 for invalid auto_requeue, got %d", w.Code)
+	}
+}

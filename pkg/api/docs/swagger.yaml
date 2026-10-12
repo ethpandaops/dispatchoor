@@ -1126,13 +1126,24 @@ paths:
       - runners
   /groups/{id}/templates:
     get:
-      description: Returns all job templates for a group
+      description: Returns the job templates for a group, optionally filtered by labels
+        (label.KEY=VALUE, AND logic), missing labels, or whether an auto-requeue job
+        for the template is in the queue
       parameters:
       - description: Group ID
         in: path
         name: id
         required: true
         type: string
+      - description: Only templates without labels
+        in: query
+        name: unlabeled
+        type: boolean
+      - description: Only templates with (true) or without (false) an auto-requeue
+          job in the queue
+        in: query
+        name: auto_requeue
+        type: boolean
       produces:
       - application/json
       responses:
@@ -1142,6 +1153,10 @@ paths:
             items:
               $ref: '#/definitions/github_com_ethpandaops_dispatchoor_pkg_store.JobTemplate'
             type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pkg_api.ErrorResponse'
         "401":
           description: Unauthorized
           schema:
