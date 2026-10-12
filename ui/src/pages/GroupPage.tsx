@@ -902,6 +902,17 @@ export function GroupPage() {
     reorderMutation.mutate(jobIds);
   };
 
+  const moveSelectedPending = (edge: 'top' | 'bottom') => {
+    const selected = pendingJobs.filter((j) => selectedPendingIds.has(j.id)).map((j) => j.id);
+    const rest = pendingJobs.filter((j) => !selectedPendingIds.has(j.id)).map((j) => j.id);
+    reorderMutation.mutate(edge === 'top' ? [...selected, ...rest] : [...rest, ...selected], {
+      onSuccess: () => {
+        setSelectedPendingIds(new Set());
+        setPendingSelectionMode(false);
+      },
+    });
+  };
+
   const idleRunners = runners.filter((r: Runner) => r.status === 'online' && !r.busy);
   const busyRunners = runners.filter((r: Runner) => r.busy);
   const offlineRunners = runners.filter((r: Runner) => r.status === 'offline');
@@ -1968,6 +1979,20 @@ export function GroupPage() {
         <div className="fixed bottom-4 inset-x-2 z-50 flex flex-wrap items-center justify-center gap-2 rounded-xs border border-zinc-700 bg-zinc-900 px-3 py-2 shadow-lg sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:flex-nowrap sm:gap-3 sm:px-4">
           <span className="text-sm text-zinc-300">{selectedPendingIds.size} selected</span>
           <div className="h-4 w-px bg-zinc-700" />
+          <button
+            onClick={() => moveSelectedPending('top')}
+            disabled={reorderMutation.isPending}
+            className="rounded-xs bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            Move to top
+          </button>
+          <button
+            onClick={() => moveSelectedPending('bottom')}
+            disabled={reorderMutation.isPending}
+            className="rounded-xs bg-zinc-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-600 disabled:opacity-50"
+          >
+            Move to bottom
+          </button>
           <button
             onClick={handleBulkPause}
             className="rounded-xs bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
