@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -57,6 +58,8 @@ type service struct {
 	githubTokens       map[string]githubTokenEntry
 	githubTokenLookups *rate.Limiter
 }
+
+var errGitHubTokenRejected = errors.New("github token rejected")
 
 type githubTokenEntry struct {
 	userID     string // empty for rejected tokens
@@ -285,7 +288,7 @@ func (s *service) userFromGitHubToken(ctx context.Context, accessToken string) (
 
 	// Reject if user is not in any role mapping.
 	if !authorized {
-		return nil, fmt.Errorf("user not authorized: not in any role mapping")
+		return nil, fmt.Errorf("%w: not in any role mapping", errGitHubTokenRejected)
 	}
 
 	// Get or create user.
@@ -384,7 +387,7 @@ func (s *service) validateGitHubToken(ctx context.Context, token, tokenHash stri
 	s.githubTokensMu.Unlock()
 
 	if ok && entry.userID == "" && now.Before(entry.validUntil) {
-		return nil, fmt.Errorf("github token rejected")
+		return nil, errGitHubTokenRejected
 	}
 
 	if ok && entry.userID != "" && (now.Before(entry.validUntil) || !s.githubTokenLookups.Allow() && now.Before(entry.keepUntil)) {
@@ -397,9 +400,15 @@ func (s *service) validateGitHubToken(ctx context.Context, token, tokenHash stri
 
 	user, err := s.userFromGitHubToken(ctx, token)
 
-	entry = githubTokenEntry{validUntil: now.Add(githubTokenRejectTTL), keepUntil: now.Add(githubTokenRejectTTL)}
-	if err == nil {
+	switch {
+	case err == nil:
 		entry = githubTokenEntry{userID: user.ID, validUntil: now.Add(githubTokenCacheTTL), keepUntil: now.Add(githubTokenStaleTTL)}
+	case errors.Is(err, errGitHubTokenRejected):
+		entry = githubTokenEntry{validUntil: now.Add(githubTokenRejectTTL), keepUntil: now.Add(githubTokenRejectTTL)}
+	case ok && entry.userID != "" && now.Before(entry.keepUntil):
+		return s.cachedGitHubTokenUser(ctx, entry.userID)
+	default:
+		return nil, err
 	}
 
 	s.githubTokensMu.Lock()

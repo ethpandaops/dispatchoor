@@ -93,6 +93,10 @@ func (s *service) getGitHubUser(ctx context.Context, accessToken string) (*GitHu
 
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("%w: github api status %d", errGitHubTokenRejected, resp.StatusCode)
+	}
+
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github api error: status %d", resp.StatusCode)
 	}
@@ -135,6 +139,10 @@ func (s *service) getGitHubUserOrgs(ctx context.Context, accessToken string) ([]
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("%w: github api status %d", errGitHubTokenRejected, resp.StatusCode)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("github api error: status %d", resp.StatusCode)

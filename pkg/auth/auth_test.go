@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,8 +22,11 @@ func TestValidateSessionGitHubToken(t *testing.T) {
 	log.SetOutput(io.Discard)
 
 	userCalls := 0
+	githubDown := false
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case githubDown:
+			w.WriteHeader(http.StatusBadGateway)
 		case r.Header.Get("Authorization") == "Bearer gho_outsider" && r.URL.Path == "/user":
 			_, _ = w.Write([]byte(`{"id": 2, "login": "outsider"}`))
 		case r.Header.Get("Authorization") == "Bearer gho_outsider" && r.URL.Path == "/user/orgs":
@@ -142,5 +146,49 @@ func TestValidateSessionGitHubToken(t *testing.T) {
 
 	if _, err := svc.ValidateSession(ctx, "gho_member"); err != nil {
 		t.Errorf("Expected stale GitHub token to authenticate while rate limited: %v", err)
+	}
+
+	// Transient GitHub errors keep a validated token working and are not cached as rejections.
+	svc = NewService(log, cfg, st)
+	s = svc.(*service)
+
+	if _, err := svc.ValidateSession(ctx, "gho_member"); err != nil {
+		t.Fatalf("Expected GitHub token to authenticate: %v", err)
+	}
+
+	s.githubTokensMu.Lock()
+	for hash, e := range s.githubTokens {
+		e.validUntil = time.Now().Add(-time.Second)
+		s.githubTokens[hash] = e
+	}
+	s.githubTokensMu.Unlock()
+
+	githubDown = true
+
+	if _, err := svc.ValidateSession(ctx, "gho_member"); err != nil {
+		t.Errorf("Expected validated token to survive a GitHub outage: %v", err)
+	}
+
+	if _, err := svc.ValidateSession(ctx, "gho_newcomer"); err == nil {
+		t.Error("Expected unseen token to fail during a GitHub outage")
+	}
+
+	githubDown = false
+
+	if _, err := svc.ValidateSession(ctx, "gho_member"); err != nil {
+		t.Errorf("Expected token to authenticate after GitHub recovers: %v", err)
+	}
+
+	svc = NewService(log, cfg, st)
+	githubDown = true
+
+	if _, err := svc.ValidateSession(ctx, "gho_member"); err == nil || errors.Is(err, errGitHubTokenRejected) {
+		t.Errorf("Expected a transient error for an unseen token during a GitHub outage, got %v", err)
+	}
+
+	githubDown = false
+
+	if _, err := svc.ValidateSession(ctx, "gho_member"); err != nil {
+		t.Errorf("Expected outage failure not to be cached as a rejection: %v", err)
 	}
 }
