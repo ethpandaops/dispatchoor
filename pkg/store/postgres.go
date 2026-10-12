@@ -1697,7 +1697,7 @@ func (s *PostgresStore) ListAPITokensByUser(ctx context.Context, userID string) 
 	if err != nil {
 		return nil, fmt.Errorf("querying api tokens: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	tokens := make([]*APIToken, 0)
 
