@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useUIStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
+import { api } from '../../api/client';
 import { StatusIndicator } from './StatusIndicator';
 
 export function Header() {
@@ -19,6 +20,16 @@ export function Header() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const [tokenCopied, setTokenCopied] = useState(false);
+
+  const handleCopyToken = async () => {
+    const token = api.getToken();
+    if (!token) return;
+    await navigator.clipboard.writeText(token);
+    setTokenCopied(true);
+    setTimeout(() => setTokenCopied(false), 2000);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -130,6 +141,13 @@ export function Header() {
                   <p className="text-sm font-medium text-zinc-200">{user.username}</p>
                   <p className="text-xs text-zinc-500">{user.auth_provider} auth</p>
                 </div>
+                <button
+                  onClick={handleCopyToken}
+                  className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800"
+                  title="Use as Authorization: Bearer <token>"
+                >
+                  {tokenCopied ? 'Copied!' : 'Copy API token'}
+                </button>
                 <button
                   onClick={handleLogout}
                   className="w-full px-3 py-2 text-left text-sm text-zinc-300 hover:bg-zinc-800"

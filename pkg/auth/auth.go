@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethpandaops/dispatchoor/pkg/config"
@@ -50,7 +51,18 @@ type service struct {
 	cfg        *config.Config
 	store      store.Store
 	sessionTTL time.Duration
+
+	githubTokensMu sync.Mutex
+	githubTokens   map[string]githubTokenEntry
 }
+
+type githubTokenEntry struct {
+	userID    string
+	expiresAt time.Time
+}
+
+// githubTokenCacheTTL is how long a validated GitHub token is cached.
+const githubTokenCacheTTL = 5 * time.Minute
 
 // Ensure service implements Service.
 var _ Service = (*service)(nil)
@@ -58,10 +70,11 @@ var _ Service = (*service)(nil)
 // NewService creates a new auth service.
 func NewService(log logrus.FieldLogger, cfg *config.Config, st store.Store) Service {
 	return &service{
-		log:        log.WithField("component", "auth"),
-		cfg:        cfg,
-		store:      st,
-		sessionTTL: cfg.Auth.SessionTTL,
+		log:          log.WithField("component", "auth"),
+		cfg:          cfg,
+		store:        st,
+		sessionTTL:   cfg.Auth.SessionTTL,
+		githubTokens: make(map[string]githubTokenEntry),
 	}
 }
 
@@ -191,10 +204,29 @@ func (s *service) AuthenticateGitHub(ctx context.Context, code string) (*store.U
 		return nil, "", fmt.Errorf("exchanging github code: %w", err)
 	}
 
+	user, err := s.userFromGitHubToken(ctx, accessToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Create session.
+	token, err := s.createSession(ctx, user)
+	if err != nil {
+		return nil, "", fmt.Errorf("creating session: %w", err)
+	}
+
+	s.log.WithField("username", user.Username).Info("User authenticated via GitHub")
+
+	return user, token, nil
+}
+
+// userFromGitHubToken resolves a GitHub access token to a user, applying the
+// configured role mappings and creating or updating the user record.
+func (s *service) userFromGitHubToken(ctx context.Context, accessToken string) (*store.User, error) {
 	// Get GitHub user info.
 	githubUser, err := s.getGitHubUser(ctx, accessToken)
 	if err != nil {
-		return nil, "", fmt.Errorf("getting github user: %w", err)
+		return nil, fmt.Errorf("getting github user: %w", err)
 	}
 
 	// Determine role based on user or org membership.
@@ -219,7 +251,7 @@ func (s *service) AuthenticateGitHub(ctx context.Context, code string) (*store.U
 	if !authorized && len(s.cfg.Auth.GitHub.OrgRoleMapping) > 0 {
 		orgs, err := s.getGitHubUserOrgs(ctx, accessToken)
 		if err != nil {
-			return nil, "", fmt.Errorf("getting github orgs: %w", err)
+			return nil, fmt.Errorf("getting github orgs: %w", err)
 		}
 
 		for _, org := range orgs {
@@ -234,13 +266,13 @@ func (s *service) AuthenticateGitHub(ctx context.Context, code string) (*store.U
 
 	// Reject if user is not in any role mapping.
 	if !authorized {
-		return nil, "", fmt.Errorf("user not authorized: not in any role mapping")
+		return nil, fmt.Errorf("user not authorized: not in any role mapping")
 	}
 
 	// Get or create user.
 	user, err := s.store.GetUserByGitHubID(ctx, githubUser.ID)
 	if err != nil {
-		return nil, "", fmt.Errorf("getting user by github id: %w", err)
+		return nil, fmt.Errorf("getting user by github id: %w", err)
 	}
 
 	now := time.Now()
@@ -258,7 +290,7 @@ func (s *service) AuthenticateGitHub(ctx context.Context, code string) (*store.U
 		}
 
 		if err := s.store.CreateUser(ctx, user); err != nil {
-			return nil, "", fmt.Errorf("creating user: %w", err)
+			return nil, fmt.Errorf("creating user: %w", err)
 		}
 
 		s.log.WithField("username", user.Username).Info("Created GitHub user")
@@ -269,19 +301,11 @@ func (s *service) AuthenticateGitHub(ctx context.Context, code string) (*store.U
 		user.UpdatedAt = now
 
 		if err := s.store.UpdateUser(ctx, user); err != nil {
-			return nil, "", fmt.Errorf("updating user: %w", err)
+			return nil, fmt.Errorf("updating user: %w", err)
 		}
 	}
 
-	// Create session.
-	token, err := s.createSession(ctx, user)
-	if err != nil {
-		return nil, "", fmt.Errorf("creating session: %w", err)
-	}
-
-	s.log.WithField("username", user.Username).Info("User authenticated via GitHub")
-
-	return user, token, nil
+	return user, nil
 }
 
 // ValidateSession validates a session token and returns the associated user.
@@ -294,6 +318,10 @@ func (s *service) ValidateSession(ctx context.Context, token string) (*store.Use
 	}
 
 	if session == nil {
+		if s.cfg.Auth.GitHub.Enabled && isGitHubToken(token) {
+			return s.validateGitHubToken(ctx, token, tokenHash)
+		}
+
 		return nil, fmt.Errorf("session not found")
 	}
 
@@ -312,6 +340,55 @@ func (s *service) ValidateSession(ctx context.Context, token string) (*store.Use
 	if user == nil {
 		return nil, fmt.Errorf("user not found")
 	}
+
+	return user, nil
+}
+
+// isGitHubToken reports whether the token has a GitHub token prefix.
+func isGitHubToken(token string) bool {
+	for _, prefix := range []string{"gho_", "ghp_", "ghu_", "github_pat_"} {
+		if strings.HasPrefix(token, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// validateGitHubToken authenticates a request using a GitHub access token
+// (e.g. from `gh auth token`) instead of a dispatchoor session.
+func (s *service) validateGitHubToken(ctx context.Context, token, tokenHash string) (*store.User, error) {
+	now := time.Now()
+
+	s.githubTokensMu.Lock()
+	entry, ok := s.githubTokens[tokenHash]
+	s.githubTokensMu.Unlock()
+
+	if ok && now.Before(entry.expiresAt) {
+		user, err := s.store.GetUser(ctx, entry.userID)
+		if err != nil {
+			return nil, fmt.Errorf("getting user: %w", err)
+		}
+
+		if user != nil {
+			return user, nil
+		}
+	}
+
+	user, err := s.userFromGitHubToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+
+	s.githubTokensMu.Lock()
+	for hash, e := range s.githubTokens {
+		if now.After(e.expiresAt) {
+			delete(s.githubTokens, hash)
+		}
+	}
+
+	s.githubTokens[tokenHash] = githubTokenEntry{userID: user.ID, expiresAt: now.Add(githubTokenCacheTTL)}
+	s.githubTokensMu.Unlock()
 
 	return user, nil
 }

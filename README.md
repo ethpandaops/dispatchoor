@@ -199,6 +199,12 @@ To set up GitHub OAuth:
 
 Users must be in at least one role mapping (`org_role_mapping` or `user_role_mapping`) to log in.
 
+With GitHub auth enabled, the API also accepts a GitHub access token as a bearer token, using the same role mappings (org mappings need the `read:org` scope):
+
+```bash
+curl -H "Authorization: Bearer $(gh auth token)" https://dispatchoor.example.com/api/v1/groups
+```
+
 ### Groups and Templates
 
 Groups define pools of runners identified by labels. Each group can have multiple workflow dispatch templates defined inline, loaded from local files, or fetched from remote URLs:

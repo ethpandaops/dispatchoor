@@ -13,10 +13,13 @@ import (
 )
 
 const (
-	githubTokenURL   = "https://github.com/login/oauth/access_token"
-	githubUserURL    = "https://api.github.com/user"
-	githubOrgsURL    = "https://api.github.com/user/orgs"
+	githubTokenURL    = "https://github.com/login/oauth/access_token"
 	httpClientTimeout = 10 * time.Second
+)
+
+var (
+	githubUserURL = "https://api.github.com/user"
+	githubOrgsURL = "https://api.github.com/user/orgs"
 )
 
 // exchangeGitHubCode exchanges an OAuth code for an access token.
