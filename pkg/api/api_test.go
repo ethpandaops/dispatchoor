@@ -917,7 +917,7 @@ func TestHandleListJobTemplatesFilters(t *testing.T) {
 		t.Fatalf("Failed to migrate: %v", err)
 	}
 
-	if err := SyncGroupsFromConfig(ctx, log, st, cfg); err != nil {
+	if err := SyncGroupsFromConfig(ctx, log, st, cfg, nil); err != nil {
 		t.Fatalf("Failed to sync groups: %v", err)
 	}
 
